@@ -2,34 +2,51 @@
 
 欢迎！这是你的本地代理管理系统项目。
 
-## ⚡ 3 分钟快速开始
+## ⚡ 超简单！一键安装
 
-### 1️⃣ 准备图标（必需！）
+### 🎯 方法 1: 使用一键安装脚本（推荐）
 
-Extension 需要图标才能加载。最简单的方法：
+1. **双击运行** `一键安装.bat`
+2. **选择 [4]** 完整安装
+3. **选择 [3]** 启动 Agent
+4. **在 Chrome 中加载扩展**:
+   - 打开 `chrome://extensions/`
+   - 开启"开发者模式"
+   - 加载 `extension` 文件夹
 
-1. 找 4 张任意图片
-2. 用画图工具调整大小：16x16, 32x32, 48x48, 128x128
-3. 保存为 PNG 格式
-4. 重命名为 icon16.png, icon32.png, icon48.png, icon128.png
-5. 放到 `extension/icons/` 目录
+**完成！** 🎉
 
-**或者**使用在线工具：https://www.favicon-generator.org/
+---
 
-### 2️⃣ 配置 Go 代理
+### 🔧 方法 2: 手动安装（如果脚本失败）
+
+#### 1️⃣ 准备图标
+
+你已经有 `vpn.png`，运行图标生成脚本：
 
 ```cmd
-go env -w GOPROXY=https://goproxy.cn,direct
-go mod download
+# 如果有 Python
+pip install Pillow
+python scripts\resize_icon.py
 ```
 
-### 3️⃣ 启动 Agent
+**或者**手动创建 4 个尺寸的图标放到 `extension\icons\`
+
+#### 2️⃣ 配置 Go 代理
 
 ```cmd
-go run ./cmd/agent
+# 运行配置脚本
+scripts\setup_go_proxy.bat
 ```
 
-### 4️⃣ 加载 Extension
+#### 3️⃣ 启动 Agent
+
+```cmd
+# 运行启动脚本
+scripts\start_agent.bat
+```
+
+#### 4️⃣ 加载 Extension
 
 1. 打开 Chrome
 2. 访问 `chrome://extensions/`
@@ -37,9 +54,18 @@ go run ./cmd/agent
 4. 点击"加载已解压的扩展程序"
 5. 选择 `extension` 文件夹
 
-### 5️⃣ 测试
+---
 
-点击浏览器工具栏的扩展图标，应该能看到界面！
+### 📝 详细说明
+
+**一键安装.bat 包含以下功能**:
+- [1] 生成 Extension 图标（从你的 vpn.png）
+- [2] 配置 Go 代理并下载依赖
+- [3] 启动 Agent 服务
+- [4] 完整安装（执行 1+2）
+- [5] 查看帮助
+
+**所有脚本都是 UTF-8 编码，不会乱码！**
 
 ---
 
