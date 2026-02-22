@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Proxy Manager</title>
+  <link rel="stylesheet" href="styles/popup.css">
+</head>
+<body>
+  <div id="app">
+    <!-- 头部 -->
+    <header class="header">
+      <div class="status">
+        <span class="status-indicator" id="statusIndicator"></span>
+        <span class="status-text" id="statusText">未连接</span>
+      </div>
+      <div class="actions">
+        <button id="toggleProxy" class="btn-toggle">启用代理</button>
+        <button id="testAll" class="btn-test">测速</button>
+      </div>
+    </header>
+    
+    <!-- 代理组选择 -->
+    <section class="group-selector">
+      <label>代理组:</label>
+      <select id="groupSelect">
+        <option value="GLOBAL">GLOBAL</option>
+      </select>
+    </section>
+    
+    <!-- 节点列表 -->
+    <section class="proxy-list">
+      <div id="proxyList" class="proxy-list-container">
+        <div class="empty-state">
+          <p>正在加载节点...</p>
+        </div>
+      </div>
+    </section>
+    
+    <!-- 流量统计 -->
+    <footer class="footer">
+      <div class="traffic">
+        <span>↑ <span id="upload">0 B</span></span>
+        <span>↓ <span id="download">0 B</span></span>
+      </div>
+      <button id="settings" class="btn-settings">⚙️ 设置</button>
+    </footer>
+  </div>
+  
+  <script type="module" src="popup.js"></script>
+</body>
+</html>

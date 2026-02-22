@@ -1,0 +1,19 @@
+# Agent 配置文件示例
+# 复制此文件为 config.yaml 并修改配置
+
+# API 监听地址
+listen: "127.0.0.1:8765"
+
+# 日志配置
+log_level: "info"
+log_dir: "./logs"
+
+# 数据目录
+data_dir: "./data"
+
+# Core 配置
+core:
+  executable: "./core/verge-mihomo.exe"
+  config: "./core/config/config.yaml"
+  api: "http://127.0.0.1:9090"
+  proxy_port: 7890

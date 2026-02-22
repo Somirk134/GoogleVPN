@@ -1,0 +1,40 @@
+# 构建产物
+build/
+dist/
+*.exe
+*.zip
+
+# 运行时数据
+data/
+logs/
+*.log
+
+# 缓存
+cache/
+*.cache
+
+# 依赖
+node_modules/
+vendor/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# 配置文件（保留示例）
+config.yaml
+subscriptions.json
+!*.example
+
+# 测试覆盖率
+coverage/
+*.out
+
+# Core 可执行文件（已有）
+!core/verge-mihomo.exe
