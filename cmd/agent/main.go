@@ -4,9 +4,11 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"proxy-manager/internal/config"
 	"proxy-manager/internal/logger"
@@ -77,6 +79,7 @@ type Application struct {
 	logger *logger.Logger
 	ctx    context.Context
 	cancel context.CancelFunc
+	server *http.Server
 }
 
 // NewApplication 创建应用实例
@@ -95,6 +98,29 @@ func NewApplication(cfg *config.Config, log *logger.Logger) (*Application, error
 
 // Start 启动应用
 func (app *Application) Start() error {
+	// 创建 HTTP 服务器
+	mux := http.NewServeMux()
+	
+	// 添加 CORS 中间件
+	handler := corsMiddleware(mux)
+	
+	// 注册路由
+	mux.HandleFunc("/api/v1/status", app.handleStatus)
+	mux.HandleFunc("/api/v1/proxies", app.handleProxies)
+	
+	app.server = &http.Server{
+		Addr:    app.cfg.Listen,
+		Handler: handler,
+	}
+	
+	// 启动服务器
+	go func() {
+		app.logger.Info("HTTP server listening", "address", app.cfg.Listen)
+		if err := app.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			app.logger.Error("HTTP server error", "error", err)
+		}
+	}()
+	
 	app.logger.Info("Application started successfully")
 	return nil
 }
@@ -102,6 +128,63 @@ func (app *Application) Start() error {
 // Stop 停止应用
 func (app *Application) Stop() error {
 	app.cancel()
+	
+	// 关闭 HTTP 服务器
+	if app.server != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		
+		if err := app.server.Shutdown(ctx); err != nil {
+			app.logger.Error("Failed to shutdown HTTP server", "error", err)
+		}
+	}
+	
 	app.logger.Info("Application stopped")
 	return nil
+}
+
+// CORS 中间件
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		
+		next.ServeHTTP(w, r)
+	})
+}
+
+// API 处理函数
+func (app *Application) handleStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{
+		"code": 0,
+		"message": "success",
+		"data": {
+			"version": "` + Version + `",
+			"uptime": 0,
+			"core": {
+				"running": false,
+				"version": "unknown"
+			}
+		}
+	}`))
+}
+
+func (app *Application) handleProxies(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{
+		"code": 0,
+		"message": "success",
+		"data": {
+			"proxies": {}
+		}
+	}`))
 }

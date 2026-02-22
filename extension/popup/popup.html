@@ -7,43 +7,67 @@
 </head>
 <body>
   <div id="app">
-    <!-- 头部 -->
-    <header class="header">
-      <div class="status">
-        <span class="status-indicator" id="statusIndicator"></span>
-        <span class="status-text" id="statusText">未连接</span>
+    <!-- 左侧：状态和控制 -->
+    <aside class="sidebar">
+      <div class="logo">
+        <div class="logo-icon">🚀</div>
+        <div class="logo-text">Proxy Manager</div>
       </div>
-      <div class="actions">
-        <button id="toggleProxy" class="btn-toggle">启用代理</button>
-        <button id="testAll" class="btn-test">测速</button>
-      </div>
-    </header>
-    
-    <!-- 代理组选择 -->
-    <section class="group-selector">
-      <label>代理组:</label>
-      <select id="groupSelect">
-        <option value="GLOBAL">GLOBAL</option>
-      </select>
-    </section>
-    
-    <!-- 节点列表 -->
-    <section class="proxy-list">
-      <div id="proxyList" class="proxy-list-container">
-        <div class="empty-state">
-          <p>正在加载节点...</p>
+      
+      <div class="status-card">
+        <div class="status-row">
+          <span class="label">Agent</span>
+          <span class="status-badge" id="agentStatus">离线</span>
+        </div>
+        <div class="status-row">
+          <span class="label">代理</span>
+          <span class="status-badge" id="proxyStatus">未启用</span>
         </div>
       </div>
-    </section>
-    
-    <!-- 流量统计 -->
-    <footer class="footer">
-      <div class="traffic">
-        <span>↑ <span id="upload">0 B</span></span>
-        <span>↓ <span id="download">0 B</span></span>
+      
+      <div class="controls">
+        <button id="toggleProxy" class="btn-primary">
+          <span class="btn-icon">▶</span>
+          <span class="btn-text">启用代理</span>
+        </button>
+        <button id="testAll" class="btn-secondary">
+          <span class="btn-icon">⚡</span>
+          <span class="btn-text">测速</span>
+        </button>
       </div>
-      <button id="settings" class="btn-settings">⚙️ 设置</button>
-    </footer>
+      
+      <div class="traffic-card">
+        <div class="traffic-item">
+          <span class="traffic-label">↑ 上传</span>
+          <span class="traffic-value" id="upload">0 B</span>
+        </div>
+        <div class="traffic-item">
+          <span class="traffic-label">↓ 下载</span>
+          <span class="traffic-value" id="download">0 B</span>
+        </div>
+      </div>
+      
+      <button id="settings" class="btn-settings">
+        <span>⚙️</span> 设置
+      </button>
+    </aside>
+    
+    <!-- 右侧：节点列表 -->
+    <main class="content">
+      <div class="content-header">
+        <select id="groupSelect" class="group-select">
+          <option value="GLOBAL">全局代理</option>
+        </select>
+      </div>
+      
+      <div class="proxy-list" id="proxyList">
+        <div class="empty-state">
+          <div class="empty-icon">📡</div>
+          <p>正在连接 Agent...</p>
+          <small>请确保 Agent 服务已启动</small>
+        </div>
+      </div>
+    </main>
   </div>
   
   <script type="module" src="popup.js"></script>

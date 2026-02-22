@@ -1,14 +1,20 @@
 @echo off
 chcp 65001 >nul
+
+REM 切换到项目根目录
+cd /d "%~dp0.."
+
 echo ========================================
 echo Go 代理配置工具
 echo ========================================
+echo.
+echo 当前目录: %CD%
 echo.
 
 echo 正在配置 Go 代理...
 echo.
 
-echo [1/3] 设置 GOPROXY 为国内镜像
+echo [1/4] 设置 GOPROXY 为国内镜像
 go env -w GOPROXY=https://goproxy.cn,direct
 if %errorlevel% neq 0 (
     echo 错误: 设置 GOPROXY 失败
@@ -18,7 +24,7 @@ if %errorlevel% neq 0 (
 echo ✓ GOPROXY 设置成功
 
 echo.
-echo [2/3] 关闭 GOSUMDB 校验
+echo [2/4] 关闭 GOSUMDB 校验
 go env -w GOSUMDB=off
 if %errorlevel% neq 0 (
     echo 错误: 设置 GOSUMDB 失败
@@ -28,20 +34,36 @@ if %errorlevel% neq 0 (
 echo ✓ GOSUMDB 设置成功
 
 echo.
-echo [3/3] 下载 Go 依赖包
+echo [3/4] 整理依赖（go mod tidy）
+go mod tidy
+if %errorlevel% neq 0 (
+    echo 警告: go mod tidy 失败，继续尝试下载...
+)
+echo ✓ 依赖整理完成
+
+echo.
+echo [4/4] 下载 Go 依赖包
 go mod download
 if %errorlevel% neq 0 (
     echo.
     echo 警告: 依赖下载失败，尝试使用备用镜像...
     echo.
     go env -w GOPROXY=https://goproxy.io,direct
+    go mod tidy
     go mod download
     if %errorlevel% neq 0 (
         echo.
-        echo 错误: 依赖下载仍然失败
-        echo 请检查网络连接或尝试手动配置代理
-        pause
-        exit /b 1
+        echo 尝试第三个镜像...
+        go env -w GOPROXY=https://mirrors.aliyun.com/goproxy/,direct
+        go mod tidy
+        go mod download
+        if %errorlevel% neq 0 (
+            echo.
+            echo 错误: 依赖下载仍然失败
+            echo 请检查网络连接
+            pause
+            exit /b 1
+        )
     )
 )
 echo ✓ 依赖下载成功

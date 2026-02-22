@@ -1,250 +1,358 @@
-/* Popup 样式 */
+/* ==========================================================================
+   全局变量与重置
+   ========================================================================== */
+:root {
+    /* 颜色系统 */
+    --color-primary-start: #667eea;
+    --color-primary-end: #764ba2;
+    --color-success: #4caf50;
+    --color-warning: #ff9800;
+    --color-danger: #f44336;
+    
+    /* 中性色 */
+    --color-white: #ffffff;
+    --color-bg-light: #f8f9fa;
+    --color-text-main: #1a1a1a;
+    --color-text-sub: #666666;
+    --color-border: #e0e0e0;
+    
+    /* 玻璃拟物参数 */
+    --glass-bg: rgba(255, 255, 255, 0.15);
+    --glass-border: rgba(255, 255, 255, 0.2);
+    --glass-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    
+    /* 尺寸与过渡 */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 14px;
+    --transition: all 0.3s ease;
+}
 
 * {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
 }
 
 body {
-  width: 360px;
-  min-height: 400px;
-  max-height: 600px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-  font-size: 14px;
-  color: #333;
-  background: #f5f5f5;
+    width: 600px;
+    height: 500px;
+    overflow: hidden; /* 防止出现外层滚动条 */
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--color-text-main);
+    background-color: var(--color-bg-light);
+    user-select: none; /* 防止意外选中文本 */
 }
 
 #app {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
+    display: flex;
+    width: 100%;
+    height: 100%;
 }
 
-/* 头部 */
-.header {
-  background: #fff;
-  padding: 12px 16px;
-  border-bottom: 1px solid #e0e0e0;
+/* ==========================================================================
+   左侧边栏 (Sidebar)
+   ========================================================================== */
+.sidebar {
+    width: 220px;
+    flex-shrink: 0;
+    background: linear-gradient(180deg, var(--color-primary-start) 0%, var(--color-primary-end) 100%);
+    color: var(--color-white);
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
 }
 
-.status {
-  display: flex;
-  align-items: center;
-  margin-bottom: 8px;
+/* 品牌 Logo */
+.brand {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+}
+.logo-icon { font-size: 20px; }
+.brand-title {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
 }
 
+/* 毛玻璃卡片通用样式 */
+.glass-card {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    box-shadow: var(--glass-shadow);
+}
+
+/* 状态面板 */
+.status-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+    margin-bottom: 10px;
+}
+.status-row:last-child { margin-bottom: 0; }
+.status-label { opacity: 0.9; }
+
+/* 状态指示器 */
 .status-indicator {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 500;
+}
+.dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+.dot.online {
+    background-color: var(--color-success);
+    box-shadow: 0 0 6px var(--color-success);
+}
+.dot.offline { background-color: #9e9e9e; }
+
+/* 徽章 */
+.badge {
+    padding: 3px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 11px;
+    font-weight: 600;
+}
+.badge-success { background: var(--color-success); color: white; }
+.badge-disabled { background: rgba(255,255,255,0.2); color: white; }
+
+/* 按钮组 */
+.controls {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 4px;
+}
+.btn {
+    border: none;
+    border-radius: var(--radius-md);
+    padding: 10px 14px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
 }
 
-.status-indicator.connected {
-  background: #4caf50;
+/* 主按钮 - 默认（未启用状态） */
+.btn-primary {
+    background: var(--color-white);
+    color: var(--color-primary-end);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+}
+/* 主按钮 - 激活（停止状态） */
+.btn-primary.active {
+    background: var(--color-danger);
+    color: var(--color-white);
+}
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.2);
+}
+.btn-primary:active { transform: translateY(0); }
+
+/* 次要按钮 */
+.btn-secondary {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.4);
+    color: var(--color-white);
+}
+.btn-secondary:hover {
+    background: rgba(255,255,255,0.1);
+    border-color: rgba(255,255,255,0.8);
 }
 
-.status-indicator.disconnected {
-  background: #f44336;
+/* 流量统计 */
+.traffic-card {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.traffic-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+.traffic-icon { font-size: 14px; }
+.traffic-data { display: flex; flex-direction: column; }
+.traffic-label {
+    font-size: 11px;
+    opacity: 0.7;
+}
+.traffic-value {
+    font-size: 13px;
+    font-weight: 600;
 }
 
-.status-text {
-  font-size: 12px;
-  color: #666;
+/* 底部设置按钮 */
+.btn-settings {
+    margin-top: auto;
+    background: transparent;
+    border: none;
+    color: rgba(255,255,255,0.7);
+    padding: 10px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: 13px;
+    transition: var(--transition);
+    text-align: left;
+}
+.btn-settings:hover {
+    background: rgba(255,255,255,0.1);
+    color: var(--color-white);
 }
 
-.actions {
-  display: flex;
-  gap: 8px;
+/* ==========================================================================
+   右侧内容区 (Content)
+   ========================================================================== */
+.content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--color-bg-light);
 }
 
-.btn-toggle,
-.btn-test {
-  flex: 1;
-  padding: 8px 12px;
-  border: none;
-  border-radius: 4px;
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.2s;
+/* 顶部选择栏 */
+.content-header {
+    padding: 16px 20px;
+    background: var(--color-white);
+    border-bottom: 1px solid var(--color-border);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+    z-index: 10;
 }
-
-.btn-toggle {
-  background: #2196f3;
-  color: white;
+.group-select {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--color-text-main);
+    background-color: var(--color-bg-light);
+    outline: none;
+    cursor: pointer;
+    appearance: none; /* 原生下拉箭头隐藏，可以用背景图替换，这里保持简洁 */
+    transition: var(--transition);
 }
-
-.btn-toggle:hover {
-  background: #1976d2;
-}
-
-.btn-toggle.active {
-  background: #f44336;
-}
-
-.btn-toggle.active:hover {
-  background: #d32f2f;
-}
-
-.btn-test {
-  background: #4caf50;
-  color: white;
-}
-
-.btn-test:hover {
-  background: #388e3c;
-}
-
-.btn-test:disabled {
-  background: #ccc;
-  cursor: not-allowed;
-}
-
-/* 代理组选择 */
-.group-selector {
-  background: #fff;
-  padding: 12px 16px;
-  border-bottom: 1px solid #e0e0e0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.group-selector label {
-  font-size: 13px;
-  color: #666;
-}
-
-.group-selector select {
-  flex: 1;
-  padding: 6px 8px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 13px;
-  cursor: pointer;
+.group-select:focus {
+    border-color: var(--color-primary-start);
+    box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.2);
 }
 
 /* 节点列表 */
 .proxy-list {
-  flex: 1;
-  overflow-y: auto;
-  background: #fff;
+    flex: 1;
+    overflow-y: auto;
+    padding: 16px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
 }
 
-.proxy-list-container {
-  padding: 8px;
-}
-
-.proxy-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px;
-  margin-bottom: 4px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: background 0.2s;
-}
-
-.proxy-item:hover {
-  background: #f5f5f5;
-}
-
-.proxy-item.selected {
-  background: #e3f2fd;
-  border-left: 3px solid #2196f3;
-}
-
-.proxy-info {
-  flex: 1;
-}
-
-.proxy-name {
-  font-size: 14px;
-  font-weight: 500;
-  margin-bottom: 4px;
-}
-
-.proxy-type {
-  font-size: 12px;
-  color: #999;
-}
-
-.proxy-delay {
-  font-size: 13px;
-  font-weight: 500;
-  padding: 4px 8px;
-  border-radius: 4px;
-}
-
-.proxy-delay.delay-good {
-  color: #4caf50;
-  background: #e8f5e9;
-}
-
-.proxy-delay.delay-medium {
-  color: #ff9800;
-  background: #fff3e0;
-}
-
-.proxy-delay.delay-bad {
-  color: #f44336;
-  background: #ffebee;
-}
-
-.empty-state {
-  text-align: center;
-  padding: 40px 20px;
-  color: #999;
-}
-
-/* 底部 */
-.footer {
-  background: #fff;
-  padding: 12px 16px;
-  border-top: 1px solid #e0e0e0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.traffic {
-  display: flex;
-  gap: 16px;
-  font-size: 12px;
-  color: #666;
-}
-
-.btn-settings {
-  padding: 6px 12px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  background: white;
-  font-size: 13px;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.btn-settings:hover {
-  background: #f5f5f5;
-}
-
-/* 滚动条样式 */
-.proxy-list::-webkit-scrollbar {
-  width: 6px;
-}
-
-.proxy-list::-webkit-scrollbar-track {
-  background: #f5f5f5;
-}
-
+/* 自定义滚动条 */
+.proxy-list::-webkit-scrollbar { width: 6px; }
+.proxy-list::-webkit-scrollbar-track { background: transparent; }
 .proxy-list::-webkit-scrollbar-thumb {
-  background: #ccc;
-  border-radius: 3px;
+    background-color: #cfd8dc;
+    border-radius: 10px;
+}
+.proxy-list::-webkit-scrollbar-thumb:hover { background-color: #b0bec5; }
+
+/* 节点项卡片 */
+.proxy-item {
+    background: var(--color-white);
+    border-radius: var(--radius-md);
+    padding: 14px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: pointer;
+    border: 1px solid transparent;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+    transition: var(--transition);
 }
 
-.proxy-list::-webkit-scrollbar-thumb:hover {
-  background: #999;
+/* 节点悬停效果 (轻微右移 + 背景色) */
+.proxy-item:hover {
+    transform: translateX(4px);
+    background-color: #fafafa;
+    border-color: #e0e0e0;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.08);
+}
+
+/* 节点选中状态 */
+.proxy-item.selected {
+    background: linear-gradient(to right, rgba(102, 126, 234, 0.05), rgba(118, 75, 162, 0.05));
+    border: 1px solid var(--color-primary-start);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+}
+
+/* 节点左侧信息 */
+.node-info {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.node-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-text-main);
+}
+.node-type {
+    align-self: flex-start;
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-weight: 500;
+}
+
+/* 协议类型标签配色 */
+.type-ss { background: #e3f2fd; color: #1976d2; }
+.type-vmess { background: #f3e5f5; color: #7b1fa2; }
+.type-trojan { background: #e8f5e9; color: #388e3c; }
+
+/* 节点右侧延迟 */
+.node-status {
+    display: flex;
+    align-items: center;
+}
+.latency {
+    font-size: 13px;
+    font-weight: 600;
+}
+.latency.good { color: var(--color-success); }
+.latency.warning { color: var(--color-warning); }
+.latency.bad { color: var(--color-danger); }
+
+/* 空状态 */
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--color-text-sub);
+}
+.empty-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+.empty-text {
+    font-size: 14px;
 }

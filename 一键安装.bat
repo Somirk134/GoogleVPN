@@ -54,13 +54,19 @@ echo 正在检查 Pillow 库...
 python -c "import PIL" >nul 2>&1
 if %errorlevel% neq 0 (
     echo.
-    echo Pillow 库未安装，正在安装...
-    pip install Pillow
+    echo Pillow 库未安装，正在使用国内镜像安装...
+    echo 使用清华大学镜像...
+    pip install -i https://pypi.tuna.tsinghua.edu.cn/simple Pillow
     if %errorlevel% neq 0 (
-        echo.
-        echo 错误: Pillow 安装失败
-        pause
-        goto menu
+        echo 清华镜像失败，尝试阿里云镜像...
+        pip install -i https://mirrors.aliyun.com/pypi/simple/ Pillow
+        if %errorlevel% neq 0 (
+            echo.
+            echo 错误: Pillow 安装失败
+            echo 建议: 手动运行 scripts\install_pillow.bat
+            pause
+            goto menu
+        )
     )
 )
 
@@ -110,8 +116,11 @@ if %errorlevel% neq 0 (
 ) else (
     python -c "import PIL" >nul 2>&1
     if %errorlevel% neq 0 (
-        echo 正在安装 Pillow...
-        pip install Pillow
+        echo 正在使用国内镜像安装 Pillow...
+        pip install -i https://pypi.tuna.tsinghua.edu.cn/simple Pillow
+        if %errorlevel% neq 0 (
+            pip install -i https://mirrors.aliyun.com/pypi/simple/ Pillow
+        )
     )
     python scripts\resize_icon.py
 )

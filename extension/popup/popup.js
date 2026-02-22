@@ -10,18 +10,26 @@ class PopupApp {
   
   async init() {
     console.log('Popup: Initializing...');
+    console.log('Popup: Loading state...');
     
     // 加载状态
     await this.loadState();
     
+    console.log('Popup: State loaded:', this.state);
+    
     // 绑定事件
     this.bindEvents();
+    
+    console.log('Popup: Events bound');
     
     // 渲染 UI
     this.render();
     
+    console.log('Popup: UI rendered');
+    
     // 监听状态更新
     chrome.runtime.onMessage.addListener((message) => {
+      console.log('Popup: Received message:', message);
       if (message.type === 'STATE_UPDATE') {
         this.state = message.state;
         this.render();
@@ -33,12 +41,23 @@ class PopupApp {
   
   async loadState() {
     try {
+      // 先尝试连接 Agent
+      try {
+        await chrome.runtime.sendMessage({
+          type: 'CONNECT_AGENT'
+        });
+      } catch (error) {
+        console.log('Agent connection attempt:', error.message);
+      }
+      
+      // 获取当前状态
       const response = await chrome.runtime.sendMessage({
         type: 'GET_STATE'
       });
       
       if (response.success) {
         this.state = response.data;
+        console.log('Popup: State loaded', this.state);
       } else {
         console.error('Failed to load state:', response.error);
         this.showError('无法加载状态');
@@ -90,22 +109,38 @@ class PopupApp {
   renderStatus() {
     const indicator = document.getElementById('statusIndicator');
     const text = document.getElementById('statusText');
+    const badge = document.getElementById('proxyStatusBadge');
     const toggleBtn = document.getElementById('toggleProxy');
     
+    // 安全检查
+    if (!indicator || !text || !badge || !toggleBtn) {
+      console.error('Popup: Status elements not found', {
+        indicator: !!indicator,
+        text: !!text,
+        badge: !!badge,
+        toggleBtn: !!toggleBtn
+      });
+      return;
+    }
+    
     if (this.state.connected) {
-      indicator.className = 'status-indicator connected';
-      text.textContent = '已连接';
+      indicator.className = 'dot online';
+      text.textContent = '在线';
     } else {
-      indicator.className = 'status-indicator disconnected';
-      text.textContent = this.state.connectError || '未连接';
+      indicator.className = 'dot offline';
+      text.textContent = this.state.connectError || '离线';
     }
     
     if (this.state.proxyEnabled) {
-      toggleBtn.textContent = '禁用代理';
-      toggleBtn.className = 'btn-toggle active';
+      toggleBtn.innerHTML = '<span class="btn-icon">⏹</span> 停止代理';
+      toggleBtn.className = 'btn btn-primary active';
+      badge.className = 'badge badge-success';
+      badge.textContent = '已启用';
     } else {
-      toggleBtn.textContent = '启用代理';
-      toggleBtn.className = 'btn-toggle';
+      toggleBtn.innerHTML = '<span class="btn-icon">▶</span> 启用代理';
+      toggleBtn.className = 'btn btn-primary';
+      badge.className = 'badge badge-disabled';
+      badge.textContent = '未启用';
     }
   }
   
@@ -162,21 +197,27 @@ class PopupApp {
     item.className = `proxy-item ${selected ? 'selected' : ''}`;
     
     const info = document.createElement('div');
-    info.className = 'proxy-info';
+    info.className = 'node-info';
     
     const name = document.createElement('div');
-    name.className = 'proxy-name';
+    name.className = 'node-name';
     name.textContent = proxy.name;
     
-    const type = document.createElement('div');
-    type.className = 'proxy-type';
+    const type = document.createElement('span');
+    type.className = 'node-type';
+    // 根据类型添加对应的 class
+    const typeClass = this.getTypeClass(proxy.type);
+    type.className += ` ${typeClass}`;
     type.textContent = proxy.type || 'Unknown';
     
     info.appendChild(name);
     info.appendChild(type);
     
-    const delay = document.createElement('div');
-    delay.className = 'proxy-delay';
+    const status = document.createElement('div');
+    status.className = 'node-status';
+    
+    const delay = document.createElement('span');
+    delay.className = 'latency';
     if (proxy.delay && proxy.delay > 0) {
       delay.textContent = `${proxy.delay}ms`;
       delay.className += this.getDelayClass(proxy.delay);
@@ -184,18 +225,30 @@ class PopupApp {
       delay.textContent = '-';
     }
     
+    status.appendChild(delay);
+    
     item.appendChild(info);
-    item.appendChild(delay);
+    item.appendChild(status);
     
     item.addEventListener('click', onClick);
     
     return item;
   }
   
+  getTypeClass(type) {
+    const typeMap = {
+      'Shadowsocks': 'type-ss',
+      'ShadowsocksR': 'type-ss',
+      'VMess': 'type-vmess',
+      'Trojan': 'type-trojan'
+    };
+    return typeMap[type] || 'type-ss';
+  }
+  
   getDelayClass(delay) {
-    if (delay < 100) return ' delay-good';
-    if (delay < 300) return ' delay-medium';
-    return ' delay-bad';
+    if (delay < 100) return ' good';
+    if (delay < 300) return ' warning';
+    return ' bad';
   }
   
   renderTraffic() {
