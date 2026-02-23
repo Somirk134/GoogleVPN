@@ -1,4 +1,4 @@
-// Proxy Manager - Service Worker (直连 mihomo 版)
+// Proxy Manager - Service Worker
 
 import { StateManager } from './modules/state.js';
 import { MihomoAPI } from './modules/api.js';

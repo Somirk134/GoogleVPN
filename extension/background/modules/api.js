@@ -1,5 +1,4 @@
-// Mihomo API 直连客户端
-// 直接与本地 Clash/Mihomo 的 RESTful API 通信
+// Mihomo REST API 客户端
 
 export class MihomoAPI {
   constructor(baseURL = 'http://127.0.0.1:9097', secret = '') {

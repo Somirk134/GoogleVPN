@@ -1,14 +1,36 @@
-// 设置页面 — 深色科技风 + 新手引导
+// 设置页面
+
+function formatBytes(bytes) {
+  if (!bytes || bytes === 0) return '0 B';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+function formatSpeed(bytes) {
+  if (!bytes || bytes === 0) return '0 B/s';
+  const k = 1024;
+  const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
 
 class OptionsApp {
   constructor() {
     this.commonPorts = [9097, 9090, 9098, 9099, 7893, 19090, 36925, 59090, 29090, 39090, 49090];
     this.wizardStep = 1;
     this.totalSteps = 4;
+    // 流量图表数据
+    this.chartData = { up: [], down: [] };
+    this.maxChartPoints = 60; // 60秒数据
+    this.trafficStream = null;
+    this.trafficInterval = null;
     this.init();
   }
 
   async init() {
+    await this.initTheme();
     await this.loadConfig();
     this.bindEvents();
     this.updateSidebarStatus();
@@ -47,6 +69,43 @@ class OptionsApp {
     document.getElementById('wzPrev').addEventListener('click', () => this.wizardGo(-1));
     document.getElementById('wzNext').addEventListener('click', () => this.wizardGo(1));
     document.getElementById('guideTest').addEventListener('click', () => this.guideTestConnection());
+
+    // 主题切换
+    document.getElementById('themeToggle').addEventListener('click', () => this.toggleTheme());
+  }
+
+  // === 主题 ===
+  async initTheme() {
+    try {
+      const result = await chrome.storage.local.get('pmTheme');
+      const theme = result.pmTheme || 'light';
+      this.applyTheme(theme);
+    } catch {
+      this.applyTheme('light');
+    }
+  }
+
+  async toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme') || 'light';
+    const next = current === 'dark' ? 'light' : 'dark';
+    this.applyTheme(next);
+    try {
+      await chrome.storage.local.set({ pmTheme: next });
+    } catch {}
+  }
+
+  applyTheme(theme) {
+    document.documentElement.setAttribute('data-theme', theme);
+    const icon = document.getElementById('themeIcon');
+    const label = document.querySelector('.theme-label');
+    if (!icon || !label) return;
+    if (theme === 'dark') {
+      icon.innerHTML = '<path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/>';
+      label.textContent = '暗色主题';
+    } else {
+      icon.innerHTML = '<circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>';
+      label.textContent = '亮色主题';
+    }
   }
 
   switchTab(tab) {
@@ -54,6 +113,7 @@ class OptionsApp {
     document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
     document.querySelector(`.nav-item[data-tab="${tab}"]`).classList.add('active');
     document.getElementById(`tab-${tab}`).classList.add('active');
+    this.onTabSwitch(tab);
   }
 
   // === 向导 ===
@@ -231,6 +291,214 @@ class OptionsApp {
       status.style.color = '#22c55e';
       setTimeout(() => { status.textContent = ''; }, 2000);
     }
+  }
+
+  // === 流量统计 ===
+
+  // 当切换到流量 tab 时启动实时流，离开时停止
+  onTabSwitch(tab) {
+    if (tab === 'traffic') {
+      this.startTrafficStream();
+      this.refreshConnectionStats();
+      // 每2秒刷新连接数和累计流量
+      this.trafficInterval = setInterval(() => this.refreshConnectionStats(), 2000);
+    } else {
+      this.stopTrafficStream();
+      if (this.trafficInterval) { clearInterval(this.trafficInterval); this.trafficInterval = null; }
+    }
+  }
+
+  async startTrafficStream() {
+    this.stopTrafficStream();
+    const { config } = await chrome.storage.local.get('config');
+    if (!config || !config.mihomoAPI) return;
+
+    const url = `${config.mihomoAPI}/traffic`;
+    const headers = {};
+    if (config.secret) headers['Authorization'] = `Bearer ${config.secret}`;
+
+    try {
+      const resp = await fetch(url, { headers });
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      this.trafficStream = reader;
+
+      let buffer = '';
+      const read = async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            // mihomo /traffic 每秒输出一行 JSON: {"up":123,"down":456}
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // 保留不完整的行
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed) continue;
+              try {
+                const data = JSON.parse(trimmed);
+                this.onTrafficData(data);
+              } catch {}
+            }
+          }
+        } catch (e) {
+          // stream closed
+        }
+      };
+      read();
+    } catch {}
+  }
+
+  stopTrafficStream() {
+    if (this.trafficStream) {
+      try { this.trafficStream.cancel(); } catch {}
+      this.trafficStream = null;
+    }
+  }
+
+  onTrafficData(data) {
+    const up = data.up || 0;
+    const down = data.down || 0;
+
+    // 更新速率显示
+    document.getElementById('statUpSpeed').textContent = formatSpeed(up);
+    document.getElementById('statDownSpeed').textContent = formatSpeed(down);
+
+    // 推入图表数据
+    this.chartData.up.push(up);
+    this.chartData.down.push(down);
+    if (this.chartData.up.length > this.maxChartPoints) {
+      this.chartData.up.shift();
+      this.chartData.down.shift();
+    }
+
+    this.drawChart();
+  }
+
+  async refreshConnectionStats() {
+    try {
+      const resp = await chrome.runtime.sendMessage({ type: 'GET_TRAFFIC' });
+      if (resp && resp.success) {
+        const d = resp.data;
+        document.getElementById('statUpload').textContent = formatBytes(d.upload || 0);
+        document.getElementById('statDownload').textContent = formatBytes(d.download || 0);
+        document.getElementById('statConnections').textContent = d.connections || 0;
+      }
+    } catch {}
+
+    // 内核占用 — 通过 mihomo /memory 获取
+    try {
+      const { config } = await chrome.storage.local.get('config');
+      if (config && config.mihomoAPI) {
+        const headers = {};
+        if (config.secret) headers['Authorization'] = `Bearer ${config.secret}`;
+        const resp = await fetch(`${config.mihomoAPI}/memory`, { headers, signal: AbortSignal.timeout(2000) });
+        // /memory 是 SSE 流，读一行就够
+        const reader = resp.body.getReader();
+        const { value } = await reader.read();
+        reader.cancel();
+        const text = new TextDecoder().decode(value);
+        const line = text.trim().split('\n')[0];
+        if (line) {
+          const mem = JSON.parse(line);
+          document.getElementById('statMemory').textContent = formatBytes(mem.inuse || 0);
+        }
+      }
+    } catch {}
+  }
+
+  drawChart() {
+    const canvas = document.getElementById('trafficChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const w = rect.width;
+    const h = rect.height;
+    const pad = { top: 20, right: 12, bottom: 24, left: 56 };
+    const chartW = w - pad.left - pad.right;
+    const chartH = h - pad.top - pad.bottom;
+
+    // 清空
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    ctx.clearRect(0, 0, w, h);
+
+    // 找最大值
+    const allVals = [...this.chartData.up, ...this.chartData.down];
+    let maxVal = Math.max(...allVals, 1024); // 最小 1KB
+    // 向上取整到好看的数
+    const niceMax = this.niceNum(maxVal);
+
+    // 画网格线
+    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+    ctx.lineWidth = 1;
+    const gridLines = 4;
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.fillStyle = isDark ? '#484f58' : '#9ca3af';
+    ctx.textAlign = 'right';
+    for (let i = 0; i <= gridLines; i++) {
+      const y = pad.top + (chartH / gridLines) * i;
+      const val = niceMax * (1 - i / gridLines);
+      ctx.beginPath();
+      ctx.moveTo(pad.left, y);
+      ctx.lineTo(w - pad.right, y);
+      ctx.stroke();
+      ctx.fillText(formatSpeed(val).replace('/s', ''), pad.left - 6, y + 3);
+    }
+
+    const points = this.chartData.up.length;
+    if (points < 2) return;
+
+    const stepX = chartW / (this.maxChartPoints - 1);
+
+    // 画下载线（橙色）
+    this.drawLine(ctx, this.chartData.down, niceMax, pad, chartH, stepX, '#fb923c', 0.15);
+    // 画上传线（蓝色）
+    this.drawLine(ctx, this.chartData.up, niceMax, pad, chartH, stepX, '#38bdf8', 0.1);
+  }
+
+  drawLine(ctx, data, maxVal, pad, chartH, stepX, color, fillAlpha) {
+    const offset = this.maxChartPoints - data.length;
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.lineJoin = 'round';
+
+    for (let i = 0; i < data.length; i++) {
+      const x = pad.left + (offset + i) * stepX;
+      const y = pad.top + chartH - (data[i] / maxVal) * chartH;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // 填充区域
+    ctx.lineTo(pad.left + (offset + data.length - 1) * stepX, pad.top + chartH);
+    ctx.lineTo(pad.left + offset * stepX, pad.top + chartH);
+    ctx.closePath();
+    // hex → rgba
+    const r = parseInt(color.slice(1,3), 16);
+    const g = parseInt(color.slice(3,5), 16);
+    const b = parseInt(color.slice(5,7), 16);
+    ctx.fillStyle = `rgba(${r},${g},${b},${fillAlpha})`;
+    ctx.fill();
+  }
+
+  niceNum(val) {
+    const units = [1, 1024, 1024*1024, 1024*1024*1024];
+    for (let i = units.length - 1; i >= 0; i--) {
+      if (val >= units[i]) {
+        const scaled = val / units[i];
+        const nice = Math.ceil(scaled / 5) * 5;
+        return nice * units[i];
+      }
+    }
+    return 1024;
   }
 
   async updateSidebarStatus(connected, version) {

@@ -17,7 +17,9 @@
     "http://127.0.0.1:*/*",
     "http://localhost:*/*",
     "https://ipapi.co/*",
-    "https://api.ipify.org/*"
+    "https://api.ipify.org/*",
+    "https://ipwho.is/*",
+    "http://ip-api.com/*"
   ],
   "background": {
     "service_worker": "background/background.js",

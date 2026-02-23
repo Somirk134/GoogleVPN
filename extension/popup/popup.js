@@ -1,6 +1,12 @@
-// Popup UI — 直连 mihomo 版
+// Popup UI
 
-import { formatBytes } from '../utils/format.js';
+function formatSpeed(bytes) {
+  if (!bytes || bytes === 0) return '0 B/s';
+  const k = 1024;
+  const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
+}
 
 class PopupApp {
   constructor() {
@@ -8,6 +14,10 @@ class PopupApp {
     this.isTesting = false;
     this.ipVisible = true;
     this.ipData = null;
+    // 迷你流量图数据
+    this.chartData = { up: [], down: [] };
+    this.maxChartPoints = 30;
+    this.trafficReader = null;
     this.init();
   }
 
@@ -41,10 +51,10 @@ class PopupApp {
       }
     });
 
-    // 拉延迟 + 流量
+    // 拉延迟
     if (this.state.connected) {
       this.runSpeedTest(true);
-      this.refreshTraffic();
+      this.startTrafficStream();
     }
   }
 
@@ -76,70 +86,136 @@ class PopupApp {
   // === IP 检测 ===
   toggleIPVisibility() {
     this.ipVisible = !this.ipVisible;
-    const ipEl = document.getElementById('ipAddress');
+    const list = document.getElementById('ipDetailList');
     const btn = document.getElementById('ipToggle');
     const eyeIcon = document.getElementById('eyeIcon');
 
     if (this.ipVisible) {
-      ipEl.classList.remove('masked');
+      list.classList.remove('masked');
       btn.classList.remove('masked');
-      // 正常眼睛
       eyeIcon.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
     } else {
-      ipEl.classList.add('masked');
+      list.classList.add('masked');
       btn.classList.add('masked');
-      // 划线眼睛
       eyeIcon.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>';
     }
   }
 
   async fetchIP() {
     const ipEl = document.getElementById('ipAddress');
+    const countryEl = document.getElementById('ipCountry');
     const locEl = document.getElementById('ipLocation');
+    const orgEl = document.getElementById('ipOrg');
+    const tzEl = document.getElementById('ipTimezone');
+    const asnEl = document.getElementById('ipASN');
     const refreshBtn = document.getElementById('ipRefresh');
 
     ipEl.textContent = '检测中...';
-    locEl.textContent = '';
+    countryEl.textContent = '-';
+    locEl.textContent = '-';
+    orgEl.textContent = '-';
+    tzEl.textContent = '-';
+    asnEl.textContent = '-';
     refreshBtn.classList.add('spinning');
 
     this.ipData = null;
 
-    try {
-      const resp = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(5000) });
-      const data = await resp.json();
-      this.ipData = {
-        ip: data.ip,
-        location: [data.city, data.region, data.country_name].filter(Boolean).join(', ')
-      };
-    } catch {
+    // 从 popup 直接 fetch，加 cache-busting 防止切换节点后拿到缓存的旧 IP
+    const nocache = `_t=${Date.now()}`;
+    const apis = [
+      {
+        url: `http://ip-api.com/json/?fields=query,country,countryCode,regionName,city,timezone,isp,org,as&${nocache}`,
+        parse: (d) => ({
+          ip: d.query || '-',
+          country: d.country || '-',
+          countryCode: d.countryCode || '',
+          location: [d.city, d.regionName].filter(Boolean).join(', ') || '-',
+          org: d.org || d.isp || '-',
+          timezone: d.timezone || '-',
+          asn: d.as ? d.as.split(' ')[0] : '-',
+        })
+      },
+      {
+        url: `https://ipwho.is/?${nocache}`,
+        parse: (d) => ({
+          ip: d.ip || '-',
+          country: d.country || '-',
+          countryCode: d.country_code || '',
+          location: [d.city, d.region].filter(Boolean).join(', ') || '-',
+          org: (d.connection && (d.connection.org || d.connection.isp)) || '-',
+          timezone: (d.timezone && d.timezone.id) || '-',
+          asn: (d.connection && d.connection.asn) ? `AS${d.connection.asn}` : '-',
+        })
+      },
+      {
+        url: `https://ipapi.co/json/?${nocache}`,
+        parse: (d) => ({
+          ip: d.ip || '-',
+          country: d.country_name || '-',
+          countryCode: d.country_code || '',
+          location: [d.city, d.region].filter(Boolean).join(', ') || '-',
+          org: d.org || '-',
+          timezone: d.timezone || '-',
+          asn: d.asn || '-',
+        })
+      }
+    ];
+
+    const fetchOpts = {
+      signal: AbortSignal.timeout(6000),
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
+    };
+
+    for (const api of apis) {
       try {
-        const resp = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(5000) });
+        const resp = await fetch(api.url, fetchOpts);
         const data = await resp.json();
-        this.ipData = { ip: data.ip, location: '' };
+        const ip = data.ip || data.query;
+        if (ip) {
+          const result = api.parse(data);
+          if (result.country !== '-' || result.org !== '-') {
+            this.ipData = result;
+            break;
+          }
+        }
+      } catch {}
+    }
+
+    if (!this.ipData) {
+      try {
+        const resp = await fetch(`https://api.ipify.org?format=json&${nocache}`, {
+          signal: AbortSignal.timeout(5000), cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache' }
+        });
+        const data = await resp.json();
+        this.ipData = { ip: data.ip, country: '-', countryCode: '', location: '-', org: '-', timezone: '-', asn: '-' };
       } catch {
-        this.ipData = { ip: '检测失败', location: '' };
+        this.ipData = { ip: '检测失败', country: '-', countryCode: '', location: '-', org: '-', timezone: '-', asn: '-' };
       }
     }
 
     refreshBtn.classList.remove('spinning');
-    ipEl.textContent = this.ipData.ip;
-    locEl.textContent = this.ipData.location;
 
-    // 保持当前可见性状态
+    const flag = this.ipData.countryCode ? this.countryFlag(this.ipData.countryCode) + ' ' : '';
+
+    ipEl.textContent = this.ipData.ip;
+    countryEl.textContent = flag + this.ipData.country;
+    locEl.textContent = this.ipData.location;
+    orgEl.textContent = this.ipData.org;
+    tzEl.textContent = this.ipData.timezone;
+    asnEl.textContent = this.ipData.asn;
+
     if (!this.ipVisible) {
-      ipEl.classList.add('masked');
+      document.getElementById('ipDetailList').classList.add('masked');
     }
   }
 
-  // === 流量刷新 ===
-  async refreshTraffic() {
-    try {
-      const resp = await this.sendMessage('GET_TRAFFIC');
-      if (resp && resp.success) {
-        this.state.traffic = resp.data;
-        this.renderTraffic();
-      }
-    } catch {}
+  // 国家代码 → 国旗 emoji（regional indicator symbols）
+  countryFlag(code) {
+    if (!code || code.length !== 2) return '';
+    const base = 0x1F1E6 - 65; // 'A' = 65
+    return String.fromCodePoint(base + code.charCodeAt(0), base + code.charCodeAt(1));
   }
 
   // === 测速 ===
@@ -196,8 +272,8 @@ class PopupApp {
         this.showToast(resp ? resp.error : '切换失败');
       } else {
         this.showToast(`已切换到 ${proxyName}`, 'success');
-        // 切换节点后自动重新检测 IP
-        setTimeout(() => this.fetchIP(), 500);
+        // 切换节点后等连接建立再检测 IP
+        setTimeout(() => this.fetchIP(), 1500);
       }
     } catch { this.showToast('切换失败'); }
   }
@@ -208,7 +284,6 @@ class PopupApp {
     this.renderStatus();
     this.renderGroups();
     if (!this.isTesting) this.renderProxies();
-    this.renderTraffic();
   }
 
   renderStatus() {
@@ -340,9 +415,11 @@ class PopupApp {
       delay.className += ' group-arrow';
     } else if (proxy.delay && proxy.delay > 0) {
       delay.textContent = `${proxy.delay}ms`;
-      delay.className += proxy.delay < 100 ? ' good' : proxy.delay < 300 ? ' warning' : ' bad';
+      // 绿 0-200ms，黄 200-1000ms，红 >1000ms
+      delay.className += proxy.delay <= 200 ? ' good' : proxy.delay <= 1000 ? ' medium' : ' bad';
     } else {
-      delay.textContent = '-';
+      delay.textContent = 'timeout';
+      delay.className += ' timeout';
     }
     status.appendChild(delay);
 
@@ -352,14 +429,105 @@ class PopupApp {
     return item;
   }
 
-  renderTraffic() {
-    const t = this.state.traffic || {};
-    const up = document.getElementById('upload');
-    const down = document.getElementById('download');
-    const conn = document.getElementById('connections');
-    if (up) up.textContent = formatBytes(t.upload || 0);
-    if (down) down.textContent = formatBytes(t.download || 0);
-    if (conn) conn.textContent = t.connections || 0;
+  // === 实时流量迷你图 ===
+  async startTrafficStream() {
+    try {
+      const { config } = await chrome.storage.local.get('config');
+      if (!config || !config.mihomoAPI) return;
+
+      const headers = {};
+      if (config.secret) headers['Authorization'] = `Bearer ${config.secret}`;
+      const resp = await fetch(`${config.mihomoAPI}/traffic`, { headers });
+      const reader = resp.body.getReader();
+      this.trafficReader = reader;
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      const read = async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+            for (const line of lines) {
+              const t = line.trim();
+              if (!t) continue;
+              try {
+                const data = JSON.parse(t);
+                this.onTrafficTick(data);
+              } catch {}
+            }
+          }
+        } catch {}
+      };
+      read();
+    } catch {}
+  }
+
+  onTrafficTick(data) {
+    const up = data.up || 0;
+    const down = data.down || 0;
+
+    document.getElementById('miniUpSpeed').textContent = formatSpeed(up);
+    document.getElementById('miniDownSpeed').textContent = formatSpeed(down);
+
+    this.chartData.up.push(up);
+    this.chartData.down.push(down);
+    if (this.chartData.up.length > this.maxChartPoints) {
+      this.chartData.up.shift();
+      this.chartData.down.shift();
+    }
+    this.drawMiniChart();
+  }
+
+  drawMiniChart() {
+    const canvas = document.getElementById('miniTrafficChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const w = 178, h = 40;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+
+    const allVals = [...this.chartData.up, ...this.chartData.down];
+    const maxVal = Math.max(...allVals, 1024);
+    const pts = this.chartData.up.length;
+    if (pts < 2) return;
+
+    const stepX = w / (this.maxChartPoints - 1);
+    const offset = this.maxChartPoints - pts;
+
+    // 下载（橙色）
+    this.drawMiniLine(ctx, this.chartData.down, maxVal, h, stepX, offset, '#fb923c', 0.2);
+    // 上传（蓝色）
+    this.drawMiniLine(ctx, this.chartData.up, maxVal, h, stepX, offset, '#38bdf8', 0.15);
+  }
+
+  drawMiniLine(ctx, data, maxVal, h, stepX, offset, color, alpha) {
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.2;
+    ctx.lineJoin = 'round';
+    for (let i = 0; i < data.length; i++) {
+      const x = (offset + i) * stepX;
+      const y = h - (data[i] / maxVal) * (h - 4) - 2;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    // fill
+    ctx.lineTo((offset + data.length - 1) * stepX, h);
+    ctx.lineTo(offset * stepX, h);
+    ctx.closePath();
+    const r = parseInt(color.slice(1,3), 16);
+    const g = parseInt(color.slice(3,5), 16);
+    const b = parseInt(color.slice(5,7), 16);
+    ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
+    ctx.fill();
   }
 
   showToast(msg, type = 'error') {

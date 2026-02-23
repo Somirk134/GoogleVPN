@@ -42,50 +42,59 @@
             <div class="glass-card ip-card">
                 <div class="ip-header">
                     <span class="ip-label">IP 信息</span>
-                    <button class="ip-toggle-btn" id="ipToggle" title="显示/隐藏 IP">
-                        <svg class="eye-icon" id="eyeIcon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                            <circle cx="12" cy="12" r="3"/>
-                        </svg>
-                    </button>
+                    <div class="ip-actions">
+                        <button class="ip-action-btn" id="ipToggle" title="显示/隐藏">
+                            <svg class="eye-icon" id="eyeIcon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                <circle cx="12" cy="12" r="3"/>
+                            </svg>
+                        </button>
+                        <button class="ip-action-btn" id="ipRefresh" title="刷新">
+                            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5">
+                                <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
+                                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+                            </svg>
+                        </button>
+                    </div>
                 </div>
-                <div class="ip-address" id="ipAddress">检测中...</div>
-                <div class="ip-meta">
-                    <span class="ip-location" id="ipLocation"></span>
-                    <button class="ip-refresh-btn" id="ipRefresh" title="重新检测">
-                        <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5">
-                            <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
-                            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-                        </svg>
-                    </button>
+                <div class="ip-detail-list" id="ipDetailList">
+                    <div class="ip-detail-row">
+                        <span class="ip-detail-label">IP</span>
+                        <span class="ip-detail-value ip-address-val" id="ipAddress">检测中...</span>
+                    </div>
+                    <div class="ip-detail-row">
+                        <span class="ip-detail-label">国家</span>
+                        <span class="ip-detail-value" id="ipCountry">-</span>
+                    </div>
+                    <div class="ip-detail-row">
+                        <span class="ip-detail-label">位置</span>
+                        <span class="ip-detail-value" id="ipLocation">-</span>
+                    </div>
+                    <div class="ip-detail-row">
+                        <span class="ip-detail-label">组织</span>
+                        <span class="ip-detail-value" id="ipOrg">-</span>
+                    </div>
+                    <div class="ip-detail-row">
+                        <span class="ip-detail-label">时区</span>
+                        <span class="ip-detail-value" id="ipTimezone">-</span>
+                    </div>
+                    <div class="ip-detail-row">
+                        <span class="ip-detail-label">ASN</span>
+                        <span class="ip-detail-value" id="ipASN">-</span>
+                    </div>
                 </div>
             </div>
 
-            <!-- 流量统计 -->
-            <div class="glass-card traffic-card">
-                <div class="traffic-grid">
-                    <div class="traffic-item">
-                        <span class="traffic-icon up-icon">↑</span>
-                        <div class="traffic-data">
-                            <div class="traffic-label">上传</div>
-                            <div class="traffic-value" id="upload">0 B</div>
-                        </div>
-                    </div>
-                    <div class="traffic-item">
-                        <span class="traffic-icon down-icon">↓</span>
-                        <div class="traffic-data">
-                            <div class="traffic-label">下载</div>
-                            <div class="traffic-value" id="download">0 B</div>
-                        </div>
-                    </div>
-                    <div class="traffic-item">
-                        <span class="traffic-icon conn-icon">⇌</span>
-                        <div class="traffic-data">
-                            <div class="traffic-label">连接数</div>
-                            <div class="traffic-value" id="connections">0</div>
-                        </div>
+            <!-- 迷你流量图 -->
+            <div class="glass-card mini-traffic-card">
+                <div class="mini-traffic-header">
+                    <span class="mini-traffic-label">流量</span>
+                    <div class="mini-traffic-speeds">
+                        <span class="mini-speed up-speed">↑ <span id="miniUpSpeed">0 B/s</span></span>
+                        <span class="mini-speed down-speed">↓ <span id="miniDownSpeed">0 B/s</span></span>
                     </div>
                 </div>
+                <canvas id="miniTrafficChart" width="178" height="40"></canvas>
             </div>
 
             <button id="settings" class="btn-settings">

@@ -1,4 +1,4 @@
-// 消息处理模块 — 直连 mihomo 版
+// 消息处理模块
 
 export class MessageHandler {
   constructor(state, api, proxy) {
@@ -11,14 +11,12 @@ export class MessageHandler {
       'CONNECT': () => this.connect(),
       'TOGGLE_PROXY': (d) => this.toggleProxy(d),
       'SELECT_PROXY': (d) => this.selectProxy(d),
-      'TEST_GROUP_DELAY': (d) => this.testGroupDelay(d),
-      'SYNC_PROXIES': () => this.getProxies(),
-      'GET_PROXIES': () => this.getProxies(),
+      'TEST_GROUP_DELAY': () => this.testGroupDelay(),
       'GET_TRAFFIC': () => this.getTraffic(),
     };
   }
 
-  async handle(message, sender, sendResponse) {
+  async handle(message, _sender, sendResponse) {
     const handler = this.handlers[message.type];
     if (!handler) {
       sendResponse({ success: false, error: 'Unknown message type' });
@@ -99,7 +97,7 @@ export class MessageHandler {
     return { group, proxy };
   }
 
-  // 刷新延迟 — 只读取 Clash Verge 已缓存的 history 数据，不触发新测速
+  // 刷新延迟 — 读取 mihomo 已缓存的 history 数据
   async testGroupDelay() {
     this.state.setState({ testing: true });
     try {
@@ -118,17 +116,18 @@ export class MessageHandler {
     }
   }
 
-  async getProxies() {
-    await this.syncProxies();
-    return this.state.getState().proxies;
-  }
-
   async getTraffic() {
     const data = await this.api.getTraffic();
+    // connections 数组里每个都是活跃连接（mihomo /connections 只返回 alive 的）
+    // uploadTotal / downloadTotal 是累计流量
+    const conns = data.connections || [];
     const traffic = {
       upload: data.uploadTotal || 0,
       download: data.downloadTotal || 0,
-      connections: (data.connections || []).length,
+      connections: conns.length,
+      // 实时速率：汇总所有活跃连接的 speed
+      uploadSpeed: conns.reduce((s, c) => s + (c.upload || 0), 0),
+      downloadSpeed: conns.reduce((s, c) => s + (c.download || 0), 0),
     };
     this.state.setState({ traffic });
     return traffic;
