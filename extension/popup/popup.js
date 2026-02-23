@@ -39,6 +39,14 @@ class PopupApp {
     }
 
     this.bindEvents();
+
+    // 连接成功但代理未启用 → 自动启用
+    if (this.state.connected && !this.state.proxyEnabled) {
+      await this.sendMessage('TOGGLE_PROXY', { enabled: true });
+      const updated = await this.sendMessage('GET_STATE');
+      if (updated && updated.success) this.state = updated.data;
+    }
+
     this.render();
 
     // 自动检测 IP（不管代理开没开）
@@ -225,27 +233,63 @@ class PopupApp {
     btn.textContent = '刷新中...';
     this.isTesting = true;
 
-    document.querySelectorAll('.latency').forEach(el => {
-      el.innerHTML = '<span class="spin-loader"></span>';
-      el.className = 'latency testing';
+    // 收集当前组内所有普通节点名
+    const proxies = this.state.proxies || {};
+    const group = proxies[this.state.currentGroup];
+    const skipNodes = new Set(['DIRECT', 'REJECT']);
+    const nodeNames = [];
+    if (group && group.all) {
+      for (const name of group.all) {
+        if (skipNodes.has(name)) continue;
+        const p = proxies[name];
+        if (!p) continue;
+        const isSubGroup = p.type === 'Selector' || p.type === 'URLTest' || p.type === 'Fallback';
+        if (isSubGroup) continue;
+        nodeNames.push(name);
+      }
+    }
+
+    // 所有节点先显示 loading
+    nodeNames.forEach(name => {
+      const el = document.querySelector(`.proxy-item[data-name="${CSS.escape(name)}"] .latency`);
+      if (el) {
+        el.innerHTML = '<span class="spin-loader"></span>';
+        el.className = 'latency testing';
+      }
     });
 
-    try {
-      // 只读取 Clash Verge 缓存的延迟数据，不触发新测速
-      const resp = await this.sendMessage('TEST_GROUP_DELAY');
-      if (!resp || !resp.success) {
-        if (!isAuto) this.showToast(resp ? resp.error : '刷新失败');
-      }
-    } catch (e) {
-      if (!isAuto) this.showToast('刷新失败: ' + e.message);
-    } finally {
-      this.isTesting = false;
-      btn.disabled = false;
-      btn.textContent = '刷新延迟';
-      const resp = await this.sendMessage('GET_STATE');
-      if (resp && resp.success) this.state = resp.data;
-      this.render();
-    }
+    // 并发测速，每个节点独立返回后立刻更新 UI
+    const promises = nodeNames.map(name =>
+      this.sendMessage('TEST_NODE_DELAY', { name }).then(resp => {
+        const delay = (resp && resp.success && resp.data) ? resp.data.delay : 0;
+        const el = document.querySelector(`.proxy-item[data-name="${CSS.escape(name)}"] .latency`);
+        if (el) {
+          if (delay > 0) {
+            el.textContent = `${delay}ms`;
+            el.className = 'latency' + (delay <= 200 ? ' good' : delay <= 1000 ? ' medium' : ' bad');
+          } else {
+            el.textContent = 'timeout';
+            el.className = 'latency timeout';
+          }
+        }
+        // 同步到本地 state
+        if (this.state.proxies[name]) {
+          this.state.proxies[name].delay = delay;
+        }
+      }).catch(() => {
+        const el = document.querySelector(`.proxy-item[data-name="${CSS.escape(name)}"] .latency`);
+        if (el) {
+          el.textContent = 'timeout';
+          el.className = 'latency timeout';
+        }
+      })
+    );
+
+    await Promise.allSettled(promises);
+
+    this.isTesting = false;
+    btn.disabled = false;
+    btn.textContent = '刷新延迟';
   }
 
   // === 代理控制 ===
@@ -385,6 +429,7 @@ class PopupApp {
   createProxyItem(proxy, selected, onClick, isGroup = false) {
     const item = document.createElement('div');
     item.className = `proxy-item${selected ? ' selected' : ''}${isGroup ? ' is-group' : ''}`;
+    item.setAttribute('data-name', proxy.name);
 
     const info = document.createElement('div');
     info.className = 'node-info';

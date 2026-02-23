@@ -11,7 +11,8 @@ export class MessageHandler {
       'CONNECT': () => this.connect(),
       'TOGGLE_PROXY': (d) => this.toggleProxy(d),
       'SELECT_PROXY': (d) => this.selectProxy(d),
-      'TEST_GROUP_DELAY': () => this.testGroupDelay(),
+      'TEST_GROUP_DELAY': (d) => this.testGroupDelay(d),
+      'TEST_NODE_DELAY': (d) => this.testNodeDelay(d),
       'GET_TRAFFIC': () => this.getTraffic(),
     };
   }
@@ -97,13 +98,22 @@ export class MessageHandler {
     return { group, proxy };
   }
 
-  // 刷新延迟 — 读取 mihomo 已缓存的 history 数据
-  async testGroupDelay() {
+  // 刷新延迟 — 对当前组触发真实测速，再同步最新数据
+  async testGroupDelay(data) {
     this.state.setState({ testing: true });
     try {
+      const group = (data && data.group) || this.state.getState().currentGroup;
+      if (group) {
+        // 调用 mihomo 接口触发组内所有节点的真实延迟测试
+        try {
+          await this.api.testGroupDelay(group);
+        } catch {
+          // 部分节点超时会导致整体返回错误，忽略后继续读取结果
+        }
+      }
+      // 测速完成后重新拉取最新数据（包含刚测的延迟）
       await this.syncProxies();
       const proxies = this.state.getState().proxies || {};
-      // 收集所有有延迟的节点
       const delays = {};
       for (const [name, p] of Object.entries(proxies)) {
         if (p.delay && p.delay > 0) delays[name] = p.delay;
@@ -113,6 +123,30 @@ export class MessageHandler {
     } catch (error) {
       this.state.setState({ testing: false });
       throw error;
+    }
+  }
+
+  // 单节点测速
+  async testNodeDelay(data) {
+    const { name } = data;
+    try {
+      const result = await this.api.testDelay(name);
+      const delay = result.delay || 0;
+      // 更新 state 中该节点的延迟
+      const proxies = this.state.getState().proxies;
+      if (proxies[name]) {
+        proxies[name].delay = delay;
+        this.state.setState({ proxies });
+      }
+      return { name, delay };
+    } catch {
+      // 超时或失败
+      const proxies = this.state.getState().proxies;
+      if (proxies[name]) {
+        proxies[name].delay = 0;
+        this.state.setState({ proxies });
+      }
+      return { name, delay: 0 };
     }
   }
 
