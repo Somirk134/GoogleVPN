@@ -63,7 +63,14 @@ export class MessageHandler {
 
   // 同步代理列表 — 从 mihomo 拉取最新数据，延迟优先读 history 缓存
   async syncProxies() {
-    const data = await this.api.getProxies();
+    let data;
+    try {
+      data = await this.api.getProxies();
+    } catch (err) {
+      // 连接断开，标记状态
+      this.state.setState({ connected: false, connectError: err.message });
+      throw err;
+    }
     const proxies = data.proxies || {};
 
     // 从 history 提取缓存延迟（和 Clash Verge 显示一致）
@@ -159,14 +166,29 @@ export class MessageHandler {
     // connections 数组里每个都是活跃连接（mihomo /connections 只返回 alive 的）
     // uploadTotal / downloadTotal 是累计流量
     const conns = data.connections || [];
+
+    // 计算实时速率：用累计流量差值 / 时间差
+    const now = Date.now();
+    const prevUp = this._prevUpload || 0;
+    const prevDown = this._prevDownload || 0;
+    const prevTime = this._prevTrafficTime || now;
+    const elapsed = Math.max((now - prevTime) / 1000, 1); // 秒
+
+    const uploadTotal = data.uploadTotal || 0;
+    const downloadTotal = data.downloadTotal || 0;
+
     const traffic = {
-      upload: data.uploadTotal || 0,
-      download: data.downloadTotal || 0,
+      upload: uploadTotal,
+      download: downloadTotal,
       connections: conns.length,
-      // 实时速率：汇总所有活跃连接的 speed
-      uploadSpeed: conns.reduce((s, c) => s + (c.upload || 0), 0),
-      downloadSpeed: conns.reduce((s, c) => s + (c.download || 0), 0),
+      uploadSpeed: prevTime === now ? 0 : Math.max(0, (uploadTotal - prevUp) / elapsed),
+      downloadSpeed: prevTime === now ? 0 : Math.max(0, (downloadTotal - prevDown) / elapsed),
     };
+
+    this._prevUpload = uploadTotal;
+    this._prevDownload = downloadTotal;
+    this._prevTrafficTime = now;
+
     this.state.setState({ traffic });
     return traffic;
   }

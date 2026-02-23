@@ -1,20 +1,6 @@
 // 设置页面
 
-function formatBytes(bytes) {
-  if (!bytes || bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
-
-function formatSpeed(bytes) {
-  if (!bytes || bytes === 0) return '0 B/s';
-  const k = 1024;
-  const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-}
+import { formatBytes, formatSpeed, fetchSSEOnce, niceNum, drawTrafficChart } from '../shared/utils.js';
 
 class OptionsApp {
   constructor() {
@@ -393,16 +379,9 @@ class OptionsApp {
       if (config && config.mihomoAPI) {
         const headers = {};
         if (config.secret) headers['Authorization'] = `Bearer ${config.secret}`;
-        const resp = await fetch(`${config.mihomoAPI}/memory`, { headers, signal: AbortSignal.timeout(2000) });
-        // /memory 是 SSE 流，读一行就够
-        const reader = resp.body.getReader();
-        const { value } = await reader.read();
-        reader.cancel();
-        const text = new TextDecoder().decode(value);
-        const line = text.trim().split('\n')[0];
-        if (line) {
-          const mem = JSON.parse(line);
-          document.getElementById('statMemory').textContent = formatBytes(mem.inuse || 0);
+        const mem = await fetchSSEOnce(`${config.mihomoAPI}/memory`, headers, 2000);
+        if (mem && mem.inuse != null) {
+          document.getElementById('statMemory').textContent = formatBytes(mem.inuse);
         }
       }
     } catch {}
@@ -420,85 +399,17 @@ class OptionsApp {
 
     const w = rect.width;
     const h = rect.height;
-    const pad = { top: 20, right: 12, bottom: 24, left: 56 };
-    const chartW = w - pad.left - pad.right;
-    const chartH = h - pad.top - pad.bottom;
-
-    // 清空
     const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    ctx.clearRect(0, 0, w, h);
 
-    // 找最大值
-    const allVals = [...this.chartData.up, ...this.chartData.down];
-    let maxVal = Math.max(...allVals, 1024); // 最小 1KB
-    // 向上取整到好看的数
-    const niceMax = this.niceNum(maxVal);
-
-    // 画网格线
-    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
-    ctx.lineWidth = 1;
-    const gridLines = 4;
-    ctx.font = '10px -apple-system, sans-serif';
-    ctx.fillStyle = isDark ? '#484f58' : '#9ca3af';
-    ctx.textAlign = 'right';
-    for (let i = 0; i <= gridLines; i++) {
-      const y = pad.top + (chartH / gridLines) * i;
-      const val = niceMax * (1 - i / gridLines);
-      ctx.beginPath();
-      ctx.moveTo(pad.left, y);
-      ctx.lineTo(w - pad.right, y);
-      ctx.stroke();
-      ctx.fillText(formatSpeed(val).replace('/s', ''), pad.left - 6, y + 3);
-    }
-
-    const points = this.chartData.up.length;
-    if (points < 2) return;
-
-    const stepX = chartW / (this.maxChartPoints - 1);
-
-    // 画下载线（橙色）
-    this.drawLine(ctx, this.chartData.down, niceMax, pad, chartH, stepX, '#fb923c', 0.15);
-    // 画上传线（蓝色）
-    this.drawLine(ctx, this.chartData.up, niceMax, pad, chartH, stepX, '#38bdf8', 0.1);
-  }
-
-  drawLine(ctx, data, maxVal, pad, chartH, stepX, color, fillAlpha) {
-    const offset = this.maxChartPoints - data.length;
-    ctx.beginPath();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
-    ctx.lineJoin = 'round';
-
-    for (let i = 0; i < data.length; i++) {
-      const x = pad.left + (offset + i) * stepX;
-      const y = pad.top + chartH - (data[i] / maxVal) * chartH;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-
-    // 填充区域
-    ctx.lineTo(pad.left + (offset + data.length - 1) * stepX, pad.top + chartH);
-    ctx.lineTo(pad.left + offset * stepX, pad.top + chartH);
-    ctx.closePath();
-    // hex → rgba
-    const r = parseInt(color.slice(1,3), 16);
-    const g = parseInt(color.slice(3,5), 16);
-    const b = parseInt(color.slice(5,7), 16);
-    ctx.fillStyle = `rgba(${r},${g},${b},${fillAlpha})`;
-    ctx.fill();
-  }
-
-  niceNum(val) {
-    const units = [1, 1024, 1024*1024, 1024*1024*1024];
-    for (let i = units.length - 1; i >= 0; i--) {
-      if (val >= units[i]) {
-        const scaled = val / units[i];
-        const nice = Math.ceil(scaled / 5) * 5;
-        return nice * units[i];
-      }
-    }
-    return 1024;
+    drawTrafficChart(ctx, {
+      width: w, height: h,
+      upData: this.chartData.up,
+      downData: this.chartData.down,
+      maxPoints: this.maxChartPoints,
+      padTop: 20, padRight: 12, padBottom: 24, padLeft: 56,
+      showGrid: true, showLabels: true,
+      isDark,
+    });
   }
 
   async updateSidebarStatus(connected, version) {

@@ -33,5 +33,13 @@
     },
     "default_title": "Proxy Manager"
   },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+Shift+P"
+      },
+      "description": "打开 Proxy Manager"
+    }
+  },
   "options_page": "options/options.html"
 }

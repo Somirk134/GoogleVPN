@@ -1,12 +1,6 @@
 // Popup UI
 
-function formatSpeed(bytes) {
-  if (!bytes || bytes === 0) return '0 B/s';
-  const k = 1024;
-  const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-}
+import { formatSpeed, formatBytes, fetchSSEOnce, drawTrafficChart } from '../shared/utils.js';
 
 class PopupApp {
   constructor() {
@@ -378,8 +372,8 @@ class PopupApp {
         el('sUpSpeed').textContent = formatSpeed(d.uploadSpeed || 0);
         el('sDownSpeed').textContent = formatSpeed(d.downloadSpeed || 0);
         el('sConnections').textContent = d.connections || 0;
-        el('sUpload').textContent = this.formatBytes(d.upload || 0);
-        el('sDownload').textContent = this.formatBytes(d.download || 0);
+        el('sUpload').textContent = formatBytes(d.upload || 0);
+        el('sDownload').textContent = formatBytes(d.download || 0);
         // 收集图表数据
         this.sChartData.up.push(d.uploadSpeed || 0);
         this.sChartData.down.push(d.downloadSpeed || 0);
@@ -396,15 +390,9 @@ class PopupApp {
       if (config && config.mihomoAPI) {
         const headers = {};
         if (config.secret) headers['Authorization'] = `Bearer ${config.secret}`;
-        const resp = await fetch(`${config.mihomoAPI}/memory`, { headers, signal: AbortSignal.timeout(2000) });
-        const reader = resp.body.getReader();
-        const { value } = await reader.read();
-        reader.cancel();
-        const text = new TextDecoder().decode(value);
-        const line = text.trim().split('\n')[0];
-        if (line) {
-          const mem = JSON.parse(line);
-          document.getElementById('sMemory').textContent = this.formatBytes(mem.inuse || 0);
+        const mem = await fetchSSEOnce(`${config.mihomoAPI}/memory`, headers, 2000);
+        if (mem && mem.inuse != null) {
+          document.getElementById('sMemory').textContent = formatBytes(mem.inuse);
         }
       }
     } catch {}
@@ -422,85 +410,16 @@ class PopupApp {
     canvas.height = h * dpr;
     canvas.style.height = h + 'px';
     ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, w, h);
 
-    const padTop = 8, padBot = 4;
-    const drawH = h - padTop - padBot;
-
-    // 网格线
-    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
-    ctx.lineWidth = 1;
-    for (let i = 1; i < 4; i++) {
-      const y = padTop + (drawH / 4) * i;
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
-    }
-
-    // 用固定长度数组，不足的前面补0
-    const total = this.sMaxChartPoints;
-    const upFull = new Array(total).fill(0);
-    const downFull = new Array(total).fill(0);
-    const upLen = this.sChartData.up.length;
-    const downLen = this.sChartData.down.length;
-    for (let i = 0; i < upLen; i++) upFull[total - upLen + i] = this.sChartData.up[i];
-    for (let i = 0; i < downLen; i++) downFull[total - downLen + i] = this.sChartData.down[i];
-
-    const allVals = [...upFull, ...downFull];
-    const maxVal = Math.max(...allVals, 1024);
-    const stepX = w / (total - 1);
-
-    const toY = (v) => padTop + drawH - (v / maxVal) * drawH;
-
-    // 下载（橙色）
-    this._drawSmoothArea(ctx, downFull, stepX, toY, w, h, '#fb923c', 0.2);
-    // 上传（蓝色）
-    this._drawSmoothArea(ctx, upFull, stepX, toY, w, h, '#38bdf8', 0.15);
-
-    // 右上角图例
-    ctx.font = '10px -apple-system, sans-serif';
-    ctx.fillStyle = '#38bdf8'; ctx.fillText('↑ 上传', w - 100, 14);
-    ctx.fillStyle = '#fb923c'; ctx.fillText('↓ 下载', w - 46, 14);
-  }
-
-  _drawSmoothArea(ctx, data, stepX, toY, w, h, color, alpha) {
-    const pts = data.length;
-    if (pts < 2) return;
-
-    // 画线
-    ctx.beginPath();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
-    ctx.lineJoin = 'round';
-    ctx.lineCap = 'round';
-
-    ctx.moveTo(0, toY(data[0]));
-    for (let i = 1; i < pts; i++) {
-      const x0 = (i - 1) * stepX, x1 = i * stepX;
-      const y0 = toY(data[i - 1]), y1 = toY(data[i]);
-      const cpx = (x0 + x1) / 2;
-      ctx.bezierCurveTo(cpx, y0, cpx, y1, x1, y1);
-    }
-    ctx.stroke();
-
-    // 填充渐变
-    ctx.lineTo((pts - 1) * stepX, h);
-    ctx.lineTo(0, h);
-    ctx.closePath();
-    const grad = ctx.createLinearGradient(0, 0, 0, h);
-    const r = parseInt(color.slice(1, 3), 16);
-    const g = parseInt(color.slice(3, 5), 16);
-    const b = parseInt(color.slice(5, 7), 16);
-    grad.addColorStop(0, `rgba(${r},${g},${b},${alpha})`);
-    grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
-    ctx.fillStyle = grad;
-    ctx.fill();
-  }
-
-  formatBytes(bytes) {
-    if (!bytes || bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    drawTrafficChart(ctx, {
+      width: w, height: h,
+      upData: this.sChartData.up,
+      downData: this.sChartData.down,
+      maxPoints: this.sMaxChartPoints,
+      padTop: 8, padBottom: 4,
+      showGrid: true, showLegend: true,
+      smooth: true,
+    });
   }
 
   toggleLiteIP() {
@@ -1109,6 +1028,7 @@ class PopupApp {
 
   // === 实时流量迷你图 ===
   async startTrafficStream() {
+    this.stopTrafficStream();
     try {
       const { config } = await chrome.storage.local.get('config');
       if (!config || !config.mihomoAPI) return;
@@ -1141,6 +1061,13 @@ class PopupApp {
     } catch {}
   }
 
+  stopTrafficStream() {
+    if (this.trafficReader) {
+      this.trafficReader.cancel().catch(() => {});
+      this.trafficReader = null;
+    }
+  }
+
   onTrafficTick(data) {
     const up = data.up || 0;
     const down = data.down || 0;
@@ -1168,39 +1095,13 @@ class PopupApp {
     canvas.width = w * dpr;
     canvas.height = h * dpr;
     ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, w, h);
 
-    const allVals = [...this.chartData.up, ...this.chartData.down];
-    const maxVal = Math.max(...allVals, 1024);
-    const pts = this.chartData.up.length;
-    if (pts < 2) return;
-
-    const stepX = w / (this.maxChartPoints - 1);
-    const offset = this.maxChartPoints - pts;
-
-    this.drawMiniLine(ctx, this.chartData.down, maxVal, h, stepX, offset, '#fb923c', 0.2);
-    this.drawMiniLine(ctx, this.chartData.up, maxVal, h, stepX, offset, '#38bdf8', 0.15);
-  }
-
-  drawMiniLine(ctx, data, maxVal, h, stepX, offset, color, alpha) {
-    ctx.beginPath();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.2;
-    ctx.lineJoin = 'round';
-    for (let i = 0; i < data.length; i++) {
-      const x = (offset + i) * stepX;
-      const y = h - (data[i] / maxVal) * (h - 4) - 2;
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-    }
-    ctx.stroke();
-    ctx.lineTo((offset + data.length - 1) * stepX, h);
-    ctx.lineTo(offset * stepX, h);
-    ctx.closePath();
-    const r = parseInt(color.slice(1,3), 16);
-    const g = parseInt(color.slice(3,5), 16);
-    const b = parseInt(color.slice(5,7), 16);
-    ctx.fillStyle = `rgba(${r},${g},${b},${alpha})`;
-    ctx.fill();
+    drawTrafficChart(ctx, {
+      width: w, height: h,
+      upData: this.chartData.up,
+      downData: this.chartData.down,
+      maxPoints: this.maxChartPoints,
+    });
   }
 
   showToast(msg, type = 'error') {
@@ -1216,4 +1117,10 @@ class PopupApp {
   }
 }
 
-new PopupApp();
+const app = new PopupApp();
+
+// Popup 关闭时清理 SSE 流
+window.addEventListener('unload', () => {
+  app.stopTrafficStream();
+  app.stopSettingsTraffic();
+});

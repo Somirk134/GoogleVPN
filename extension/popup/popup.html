@@ -137,7 +137,7 @@
                 <div class="settings-tab active" id="stab-connection">
                     <h3 class="stab-title">连接设置</h3>
                     <div class="s-field"><label>API 地址</label><div class="s-input-row"><input type="text" id="sAPIInput" value="http://127.0.0.1:9097" spellcheck="false"><button class="s-btn-sm" id="sAutoDetect">扫描</button></div></div>
-                    <div class="s-field"><label>Secret 密钥</label><input type="text" id="sSecretInput" placeholder="留空表示无密码" spellcheck="false"></div>
+                    <div class="s-field"><label>Secret 密钥</label><input type="password" id="sSecretInput" placeholder="留空表示无密码" spellcheck="false"></div>
                     <div class="s-btn-row"><button class="s-btn s-btn-outline" id="sTestConn">测试连接</button><button class="s-btn s-btn-primary" id="sSaveSettings">保存设置</button></div>
                     <div class="s-status" id="sConnStatus"></div>
                 </div>
@@ -178,6 +178,6 @@
         </div>
     </div>
 
-    <script src="popup.js"></script>
+    <script type="module" src="popup.js"></script>
 </body>
 </html>

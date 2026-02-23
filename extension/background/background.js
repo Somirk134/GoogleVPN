@@ -11,6 +11,7 @@ let proxy = null;
 let messageHandler = null;
 let initialized = false;
 let initPromise = null;
+let reconnectTimer = null;
 
 async function initialize() {
   if (initialized) return;
@@ -18,7 +19,7 @@ async function initialize() {
 
   initPromise = (async () => {
     state = new StateManager();
-    api = new MihomoAPI(); // config 在 CONNECT 时从 storage 读取
+    api = new MihomoAPI();
     proxy = new ProxyController();
     messageHandler = new MessageHandler(state, api, proxy);
 
@@ -29,9 +30,36 @@ async function initialize() {
   return initPromise;
 }
 
+// 自动重连：断连后每 30 秒尝试一次
+function startReconnect() {
+  stopReconnect();
+  reconnectTimer = setInterval(async () => {
+    if (!initialized || !state) return;
+    if (state.getState().connected) {
+      stopReconnect();
+      return;
+    }
+    try {
+      await messageHandler.handle(
+        { type: 'CONNECT' }, null,
+        () => {}
+      );
+      if (state.getState().connected) {
+        stopReconnect();
+      }
+    } catch {}
+  }, 30000);
+}
+
+function stopReconnect() {
+  if (reconnectTimer) {
+    clearInterval(reconnectTimer);
+    reconnectTimer = null;
+  }
+}
+
 // 安装
 chrome.runtime.onInstalled.addListener(async (details) => {
-  // 仅在完全没有 config 时写入默认值，避免覆盖用户已保存的配置
   const { config } = await chrome.storage.local.get('config');
   if (!config) {
     await chrome.storage.local.set({
@@ -40,7 +68,24 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   }
   await initialize();
 
-  // 如果已有配置（含 secret），自动尝试连接
+  // 已有配置（含 secret），自动尝试连接
+  const saved = config || (await chrome.storage.local.get('config')).config;
+  if (saved && saved.secret) {
+    try {
+      await messageHandler.handle(
+        { type: 'CONNECT' }, null,
+        () => {}
+      );
+    } catch {}
+    if (!state.getState().connected) startReconnect();
+  }
+});
+
+// 浏览器启动
+chrome.runtime.onStartup.addListener(async () => {
+  await initialize();
+  // 启动时也尝试自动连接
+  const { config } = await chrome.storage.local.get('config');
   if (config && config.secret) {
     try {
       await messageHandler.handle(
@@ -48,12 +93,8 @@ chrome.runtime.onInstalled.addListener(async (details) => {
         () => {}
       );
     } catch {}
+    if (!state.getState().connected) startReconnect();
   }
-});
-
-// 浏览器启动
-chrome.runtime.onStartup.addListener(async () => {
-  await initialize();
 });
 
 // 消息处理
@@ -68,5 +109,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 // 挂起前保存状态
 chrome.runtime.onSuspend.addListener(async () => {
+  stopReconnect();
   if (state) await state.persist();
 });

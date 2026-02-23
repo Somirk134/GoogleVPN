@@ -166,18 +166,21 @@ a:hover { color: var(--accent-light); }
 
 .input-wrap { display: flex; gap: 8px; }
 
-.form-group input[type="text"] {
+.form-group input[type="text"],
+.form-group input[type="password"] {
   flex: 1; padding: 10px 14px;
   border: 1.5px solid var(--border); border-radius: var(--radius-sm);
   font-size: 13px; font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
   background: var(--bg-input); color: var(--text);
   transition: all 0.15s;
 }
-.form-group input[type="text"]:focus {
+.form-group input[type="text"]:focus,
+.form-group input[type="password"]:focus {
   outline: none; border-color: var(--border-focus);
   box-shadow: 0 0 0 3px var(--accent-bg);
 }
-.form-group input[type="text"]::placeholder { color: var(--text-muted); }
+.form-group input[type="text"]::placeholder,
+.form-group input[type="password"]::placeholder { color: var(--text-muted); }
 
 .input-action {
   padding: 0 16px; border: 1.5px solid var(--border); border-radius: var(--radius-sm);
