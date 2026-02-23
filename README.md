@@ -1,48 +1,138 @@
 # Proxy Manager
 
-Chrome 浏览器代理控制扩展，直连本地 Clash Verge / Mihomo。
+一款轻量级 Chrome 浏览器代理管理扩展，通过直连本地 Clash Verge / Mihomo 的 RESTful API，实现浏览器级别的代理控制、节点切换与状态监控。
 
-## 功能
+> 本扩展不替代 Clash Verge，而是作为浏览器端的补充控制面板。订阅管理、规则配置、内核更新等仍由 Clash Verge 负责。
 
-- 控制浏览器是否使用代理（开/关）
-- 查看和切换代理节点
-- 一键测速，显示节点延迟
-- 节点信息、延迟数据全部从 Clash/Mihomo 实时获取
+---
 
-## 使用前提
+## 功能特性
 
-本地已安装并运行 [Clash Verge](https://github.com/clash-verge-rev/clash-verge-rev) 或其他 mihomo 内核客户端。
+- **代理开关** — 一键启用/停用浏览器代理，基于 Chrome Proxy API，仅影响浏览器流量
+- **节点切换** — 读取 Clash 配置的代理组，支持 Selector / URLTest / Fallback 类型，子组可点击跳转
+- **延迟显示** — 读取 mihomo 缓存的 history 延迟数据，与 Clash Verge 显示一致
+- **IP 检测** — 多 API 轮询检测出口 IP，显示国家、地区、ISP、时区、ASN 等详细信息
+- **实时流量** — Popup 内嵌迷你流量图，设置页提供完整的实时速率图表与连接统计
+- **亮暗主题** — 设置页支持亮色/暗色主题切换，状态持久化
+- **新手引导** — 内置 4 步向导，引导用户完成首次配置
+- **端口扫描** — 自动扫描常见端口，快速发现本地 mihomo 实例
 
-订阅管理、规则配置等由 Clash Verge 负责，本扩展只做浏览器代理控制。
+## 环境要求
+
+- Chrome 或基于 Chromium 的浏览器（Edge、Arc、Brave 等）
+- 本地运行 [Clash Verge Rev](https://github.com/clash-verge-rev/clash-verge-rev) 或其他 mihomo 内核客户端
+- mihomo 外部控制（External Controller）已启用
 
 ## 安装
 
-1. 打开 Chrome，进入 `chrome://extensions/`
-2. 开启「开发者模式」
-3. 点击「加载已解压的扩展程序」，选择 `extension/` 目录
+### 从源码加载
+
+```
+1. 克隆仓库
+   git clone https://github.com/your-username/proxy-manager.git
+
+2. 打开浏览器扩展管理页
+   Chrome  → chrome://extensions/
+   Edge    → edge://extensions/
+
+3. 开启「开发者模式」
+
+4. 点击「加载已解压的扩展程序」，选择项目中的 extension/ 目录
+```
 
 ## 配置
 
-1. 点击扩展图标 → 左下角「参数设置」
-2. 填写 Mihomo API 地址（默认 `http://127.0.0.1:9090`）
-3. 如有 Secret，填入对应字段
-4. 点击「测试连接」验证
-5. 保存设置
+1. 首次安装后会自动打开设置页，也可以点击 Popup 左下角「参数设置」进入
+2. 填写 mihomo API 地址（默认 `http://127.0.0.1:9097`），或点击「扫描」自动检测
+3. 如果设置了 Secret 密钥，填入对应字段
+4. 点击「测试连接」确认连通后保存
+
+如果不清楚如何获取这些信息，设置页内置了「新手引导」，按步骤操作即可。
 
 ## 项目结构
 
 ```
 extension/
-├── background/          # Service Worker
-│   ├── background.js    # 入口
+├── background/              # Service Worker
+│   ├── background.js        # 入口，生命周期管理
 │   └── modules/
-│       ├── api.js       # Mihomo API 客户端
-│       ├── message.js   # 消息处理
-│       ├── proxy.js     # 浏览器代理控制
-│       └── state.js     # 状态管理
-├── popup/               # 弹窗 UI
-├── options/             # 设置页面
-├── icons/               # 图标
-├── utils/               # 工具函数
-└── manifest.json
+│       ├── api.js           # Mihomo REST API 客户端
+│       ├── message.js       # 消息路由与业务逻辑
+│       ├── proxy.js         # Chrome Proxy API 控制
+│       └── state.js         # 状态管理与持久化
+├── popup/                   # 弹窗界面
+│   ├── popup.html
+│   ├── popup.js             # 节点列表、IP 检测、迷你流量图
+│   └── styles/popup.css
+├── options/                 # 设置页面
+│   ├── options.html
+│   ├── options.js           # 连接配置、向导、流量统计图表
+│   └── styles/options.css
+├── icons/                   # 扩展图标 (16/32/48/128)
+└── manifest.json            # Manifest V3 配置
 ```
+
+## 技术栈
+
+| 类别 | 技术 |
+|------|------|
+| 扩展规范 | Chrome Extension Manifest V3 |
+| 后端通信 | mihomo RESTful API + SSE (流量流) |
+| 代理控制 | Chrome Proxy API (`chrome.proxy.settings`) |
+| 数据存储 | Chrome Storage API (`chrome.storage.local`) |
+| 图表渲染 | Canvas 2D（无第三方依赖） |
+| IP 检测 | ip-api.com / ipwho.is / ipapi.co / ipify.org |
+
+## 架构说明
+
+```
+┌─────────────┐     chrome.runtime.sendMessage     ┌──────────────────┐
+│   Popup UI  │ ◄──────────────────────────────────► │  Service Worker  │
+│  (popup.js) │                                      │ (background.js)  │
+└──────┬──────┘                                      └────────┬─────────┘
+       │                                                      │
+       │  SSE /traffic (迷你图)                               │  REST API
+       │  fetch IP APIs (直接)                                │
+       ▼                                                      ▼
+┌──────────────┐                                    ┌──────────────────┐
+│  IP API 服务  │                                    │  mihomo (本地)    │
+│  (多个备选)   │                                    │  127.0.0.1:9097  │
+└──────────────┘                                    └──────────────────┘
+```
+
+- Popup 通过 Service Worker 中转与 mihomo 通信（节点切换、代理控制等）
+- 流量数据通过 SSE 直连 mihomo `/traffic` 端点
+- IP 检测从 Popup 直接发起请求，经过 Chrome Proxy API，反映真实出口 IP
+
+## 权限说明
+
+| 权限 | 用途 |
+|------|------|
+| `proxy` | 控制浏览器代理设置 |
+| `storage` | 存储用户配置和运行状态 |
+| `host_permissions` | 访问本地 mihomo API 和 IP 检测服务 |
+
+本扩展不收集任何用户数据，所有通信仅发生在本地（mihomo）和 IP 检测 API 之间。
+
+## 开发
+
+项目为纯前端 Chrome 扩展，无需构建工具，无第三方依赖。
+
+```bash
+# 克隆项目
+git clone https://github.com/your-username/proxy-manager.git
+
+# 在浏览器中加载 extension/ 目录即可开发
+# 修改代码后在 chrome://extensions/ 点击刷新按钮
+```
+
+## 已知限制
+
+- 仅控制浏览器代理，不影响系统级代理设置
+- 延迟数据读取 mihomo 缓存，不主动触发测速（避免对节点造成额外负担）
+- IP 检测依赖第三方 API，可能受到请求频率限制
+- 需要 mihomo 外部控制处于开启状态
+
+## License
+
+[MIT](LICENSE)
