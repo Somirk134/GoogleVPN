@@ -1,5 +1,4 @@
 // Popup UI
-console.log('Popup: script loaded');
 
 function formatSpeed(bytes) {
   if (!bytes || bytes === 0) return '0 B/s';
@@ -21,6 +20,8 @@ class PopupApp {
     this.trafficReader = null;
     this.mode = 'lite';
     this.litePanelOpen = false;
+    this.sChartData = { up: [], down: [] };
+    this.sMaxChartPoints = 30;
     this.init();
   }
 
@@ -32,7 +33,6 @@ class PopupApp {
 
     this.showMode(this.mode);
     this.bindEvents();
-    console.log('Popup: bindEvents done, mode =', this.mode);
 
     // 监听状态广播
     chrome.runtime.onMessage.addListener((msg) => {
@@ -70,13 +70,11 @@ class PopupApp {
     }
 
     // 第三步：未配置或连不上，渲染未连接状态，打开设置页
-    console.log('Popup:', needConfig ? 'no secret configured' : 'connect failed', '— opening settings');
     this.render();
-    chrome.runtime.openOptionsPage();
+    this.openSettings();
   }
 
   async onConnected() {
-    console.log('Popup: onConnected, state =', this.state.connected, this.state.proxyEnabled);
     // 自动启用代理
     if (!this.state.proxyEnabled) {
       try {
@@ -109,14 +107,19 @@ class PopupApp {
     this.mode = mode;
     const lite = document.getElementById('liteMode');
     const full = document.getElementById('fullMode');
+    const settings = document.getElementById('settingsMode');
     if (mode === 'full') {
       document.body.className = 'mode-full';
       lite.style.display = 'none';
       full.style.display = 'block';
+      settings.style.display = 'none';
+      settings.classList.remove('active');
     } else {
       document.body.className = '';
       lite.style.display = 'flex';
       full.style.display = 'none';
+      settings.style.display = 'none';
+      settings.classList.remove('active');
     }
     chrome.storage.local.set({ pmPopupMode: mode }).catch(() => {});
   }
@@ -126,6 +129,45 @@ class PopupApp {
     chrome.storage.local.set({ pmPopupMode: next }).then(() => {
       window.close();
     }).catch(() => {});
+  }
+
+  openSettings() {
+    document.getElementById('liteMode').style.display = 'none';
+    document.getElementById('fullMode').style.display = 'none';
+    const sv = document.getElementById('settingsMode');
+    if (this.mode === 'full') {
+      document.body.className = 'mode-full';
+    }
+    sv.style.display = 'flex';
+    sv.classList.add('active');
+    this.loadSettingsConfig();
+  }
+
+  closeSettings() {
+    document.getElementById('settingsMode').style.display = 'none';
+    document.getElementById('settingsMode').classList.remove('active');
+    this.showMode(this.mode);
+    this.render();
+  }
+
+  switchSettingsTab(tab) {
+    document.querySelectorAll('.settings-nav-item').forEach(n => n.classList.remove('active'));
+    document.querySelectorAll('.settings-tab').forEach(t => t.classList.remove('active'));
+    document.querySelector(`.settings-nav-item[data-stab="${tab}"]`).classList.add('active');
+    document.getElementById(`stab-${tab}`).classList.add('active');
+    if (tab === 'traffic') this.startSettingsTraffic();
+    else this.stopSettingsTraffic();
+  }
+
+  async loadSettingsConfig() {
+    try {
+      const { config } = await chrome.storage.local.get('config');
+      if (config) {
+        document.getElementById('sAPIInput').value = config.mihomoAPI || '';
+        document.getElementById('sSecretInput').value = config.secret || '';
+      }
+    } catch {}
+    document.getElementById('sConnStatus').textContent = '';
   }
 
   // === 事件绑定 ===
@@ -145,7 +187,7 @@ class PopupApp {
       e.stopPropagation();
       this.toggleLiteIP();
     });
-    document.getElementById('liteSettings').addEventListener('click', () => chrome.runtime.openOptionsPage());
+    document.getElementById('liteSettings').addEventListener('click', () => this.openSettings());
     document.getElementById('liteTestAll').addEventListener('click', () => this.runSpeedTest(false));
 
     // IP 卡片点击弹出详情
@@ -172,9 +214,18 @@ class PopupApp {
       this.state.currentGroup = e.target.value;
       this.render();
     });
-    document.getElementById('settings').addEventListener('click', () => chrome.runtime.openOptionsPage());
+    document.getElementById('settings').addEventListener('click', () => this.openSettings());
     document.getElementById('ipToggle').addEventListener('click', () => this.toggleIPVisibility());
     document.getElementById('ipRefresh').addEventListener('click', () => this.fetchIP());
+
+    // 设置视图
+    document.getElementById('settingsBack').addEventListener('click', () => this.closeSettings());
+    document.querySelectorAll('.settings-nav-item').forEach(item => {
+      item.addEventListener('click', () => this.switchSettingsTab(item.dataset.stab));
+    });
+    document.getElementById('sTestConn').addEventListener('click', () => this.settingsTestConnection());
+    document.getElementById('sSaveSettings').addEventListener('click', () => this.settingsSave());
+    document.getElementById('sAutoDetect').addEventListener('click', () => this.settingsAutoDetect());
   }
 
   toggleLitePanel() {
@@ -226,6 +277,230 @@ class PopupApp {
     document.getElementById('liteIPOrg').textContent = this.ipData.org || '-';
     document.getElementById('liteIPTimezone').textContent = this.ipData.timezone || '-';
     document.getElementById('liteIPASN').textContent = this.ipData.asn || '-';
+  }
+
+  // === 设置视图方法 ===
+  async settingsTestConnection() {
+    const btn = document.getElementById('sTestConn');
+    const status = document.getElementById('sConnStatus');
+    const api = document.getElementById('sAPIInput').value.trim();
+    const secret = document.getElementById('sSecretInput').value.trim();
+    btn.disabled = true; btn.textContent = '测试中...';
+    status.textContent = '';
+    try {
+      const headers = {};
+      if (secret) headers['Authorization'] = `Bearer ${secret}`;
+      const resp = await fetch(`${api}/version`, { headers, signal: AbortSignal.timeout(3000) });
+      if (!resp.ok) {
+        status.textContent = `连接失败: HTTP ${resp.status}`;
+        status.style.color = '#f85149';
+      } else {
+        const data = await resp.json();
+        status.textContent = `连接成功 — mihomo ${data.version || ''}`;
+        status.style.color = '#3fb950';
+      }
+    } catch (e) {
+      status.textContent = `连接失败: ${e.name === 'AbortError' ? '超时' : e.message}`;
+      status.style.color = '#f85149';
+    }
+    btn.disabled = false; btn.textContent = '测试连接';
+  }
+
+  async settingsSave() {
+    const api = document.getElementById('sAPIInput').value.trim();
+    const secret = document.getElementById('sSecretInput').value.trim();
+    const status = document.getElementById('sConnStatus');
+    await chrome.storage.local.set({ config: { mihomoAPI: api, secret } });
+    try {
+      const cr = await this.sendMessage('CONNECT');
+      if (cr && cr.success) {
+        const updated = await this.sendMessage('GET_STATE');
+        if (updated && updated.success) this.state = updated.data;
+        status.textContent = '已保存并连接成功';
+        status.style.color = '#3fb950';
+      } else {
+        status.textContent = '已保存，但连接失败';
+        status.style.color = '#f5a623';
+      }
+    } catch {
+      status.textContent = '已保存';
+      status.style.color = '#3fb950';
+    }
+  }
+
+  async settingsAutoDetect() {
+    const btn = document.getElementById('sAutoDetect');
+    const status = document.getElementById('sConnStatus');
+    btn.disabled = true; btn.textContent = '扫描中...';
+    status.textContent = '正在扫描常见端口...';
+    status.style.color = '#8b949e';
+    const secret = document.getElementById('sSecretInput').value.trim();
+    const ports = [9097, 9090, 9098, 9099, 7893, 19090, 36925];
+    const results = await Promise.all(ports.map(async (port) => {
+      const url = `http://127.0.0.1:${port}`;
+      try {
+        const headers = {};
+        if (secret) headers['Authorization'] = `Bearer ${secret}`;
+        const resp = await fetch(`${url}/version`, { headers, signal: AbortSignal.timeout(2000) });
+        if (!resp.ok) return null;
+        const data = await resp.json();
+        return { port, url, version: data.version };
+      } catch { return null; }
+    }));
+    const found = results.filter(Boolean);
+    if (found.length > 0) {
+      document.getElementById('sAPIInput').value = found[0].url;
+      status.textContent = `检测到 mihomo ${found[0].version} @ 端口 ${found[0].port}`;
+      status.style.color = '#3fb950';
+    } else {
+      status.textContent = '未检测到 mihomo，请确认 Clash Verge 正在运行';
+      status.style.color = '#f85149';
+    }
+    btn.disabled = false; btn.textContent = '扫描';
+  }
+
+  startSettingsTraffic() {
+    this.stopSettingsTraffic();
+    this._sTrafficInterval = setInterval(() => this.refreshSettingsTraffic(), 2000);
+    this.refreshSettingsTraffic();
+  }
+
+  stopSettingsTraffic() {
+    if (this._sTrafficInterval) { clearInterval(this._sTrafficInterval); this._sTrafficInterval = null; }
+  }
+
+  async refreshSettingsTraffic() {
+    try {
+      const resp = await this.sendMessage('GET_TRAFFIC');
+      if (resp && resp.success) {
+        const d = resp.data;
+        const el = (id) => document.getElementById(id);
+        el('sUpSpeed').textContent = formatSpeed(d.uploadSpeed || 0);
+        el('sDownSpeed').textContent = formatSpeed(d.downloadSpeed || 0);
+        el('sConnections').textContent = d.connections || 0;
+        el('sUpload').textContent = this.formatBytes(d.upload || 0);
+        el('sDownload').textContent = this.formatBytes(d.download || 0);
+        // 收集图表数据
+        this.sChartData.up.push(d.uploadSpeed || 0);
+        this.sChartData.down.push(d.downloadSpeed || 0);
+        if (this.sChartData.up.length > this.sMaxChartPoints) {
+          this.sChartData.up.shift();
+          this.sChartData.down.shift();
+        }
+        this.drawSettingsChart();
+      }
+    } catch {}
+    // 内核占用
+    try {
+      const { config } = await chrome.storage.local.get('config');
+      if (config && config.mihomoAPI) {
+        const headers = {};
+        if (config.secret) headers['Authorization'] = `Bearer ${config.secret}`;
+        const resp = await fetch(`${config.mihomoAPI}/memory`, { headers, signal: AbortSignal.timeout(2000) });
+        const reader = resp.body.getReader();
+        const { value } = await reader.read();
+        reader.cancel();
+        const text = new TextDecoder().decode(value);
+        const line = text.trim().split('\n')[0];
+        if (line) {
+          const mem = JSON.parse(line);
+          document.getElementById('sMemory').textContent = this.formatBytes(mem.inuse || 0);
+        }
+      }
+    } catch {}
+  }
+
+  drawSettingsChart() {
+    const canvas = document.getElementById('sTrafficChart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    const w = rect.width || 300;
+    const h = 120;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    canvas.style.height = h + 'px';
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, w, h);
+
+    const padTop = 8, padBot = 4;
+    const drawH = h - padTop - padBot;
+
+    // 网格线
+    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 4; i++) {
+      const y = padTop + (drawH / 4) * i;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke();
+    }
+
+    // 用固定长度数组，不足的前面补0
+    const total = this.sMaxChartPoints;
+    const upFull = new Array(total).fill(0);
+    const downFull = new Array(total).fill(0);
+    const upLen = this.sChartData.up.length;
+    const downLen = this.sChartData.down.length;
+    for (let i = 0; i < upLen; i++) upFull[total - upLen + i] = this.sChartData.up[i];
+    for (let i = 0; i < downLen; i++) downFull[total - downLen + i] = this.sChartData.down[i];
+
+    const allVals = [...upFull, ...downFull];
+    const maxVal = Math.max(...allVals, 1024);
+    const stepX = w / (total - 1);
+
+    const toY = (v) => padTop + drawH - (v / maxVal) * drawH;
+
+    // 下载（橙色）
+    this._drawSmoothArea(ctx, downFull, stepX, toY, w, h, '#fb923c', 0.2);
+    // 上传（蓝色）
+    this._drawSmoothArea(ctx, upFull, stepX, toY, w, h, '#38bdf8', 0.15);
+
+    // 右上角图例
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.fillStyle = '#38bdf8'; ctx.fillText('↑ 上传', w - 100, 14);
+    ctx.fillStyle = '#fb923c'; ctx.fillText('↓ 下载', w - 46, 14);
+  }
+
+  _drawSmoothArea(ctx, data, stepX, toY, w, h, color, alpha) {
+    const pts = data.length;
+    if (pts < 2) return;
+
+    // 画线
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.lineJoin = 'round';
+    ctx.lineCap = 'round';
+
+    ctx.moveTo(0, toY(data[0]));
+    for (let i = 1; i < pts; i++) {
+      const x0 = (i - 1) * stepX, x1 = i * stepX;
+      const y0 = toY(data[i - 1]), y1 = toY(data[i]);
+      const cpx = (x0 + x1) / 2;
+      ctx.bezierCurveTo(cpx, y0, cpx, y1, x1, y1);
+    }
+    ctx.stroke();
+
+    // 填充渐变
+    ctx.lineTo((pts - 1) * stepX, h);
+    ctx.lineTo(0, h);
+    ctx.closePath();
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    const r = parseInt(color.slice(1, 3), 16);
+    const g = parseInt(color.slice(3, 5), 16);
+    const b = parseInt(color.slice(5, 7), 16);
+    grad.addColorStop(0, `rgba(${r},${g},${b},${alpha})`);
+    grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+    ctx.fillStyle = grad;
+    ctx.fill();
+  }
+
+  formatBytes(bytes) {
+    if (!bytes || bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 
   toggleLiteIP() {
@@ -412,7 +687,7 @@ class PopupApp {
     const btn = document.getElementById('testAll');
     const liteBtn = document.getElementById('liteTestAll');
     if (btn) { btn.disabled = true; btn.textContent = '刷新中...'; }
-    if (liteBtn) { liteBtn.disabled = true; liteBtn.textContent = '刷新中...'; }
+    if (liteBtn) { liteBtn.disabled = true; liteBtn.textContent = '刷新中...'; liteBtn.classList.add('loading'); }
     this.isTesting = true;
 
     const proxies = this.state.proxies || {};
@@ -439,36 +714,35 @@ class PopupApp {
       }
     });
 
-    const promises = nodeNames.map(name =>
-      this.sendMessage('TEST_NODE_DELAY', { name }).then(resp => {
-        const delay = (resp && resp.success && resp.data) ? resp.data.delay : 0;
-        // 完整模式更新
-        const el = document.querySelector(`.proxy-item[data-name="${CSS.escape(name)}"] .latency`);
-        if (el) {
-          if (delay > 0) {
-            el.textContent = `${delay}ms`;
-            el.className = 'latency' + (delay <= 200 ? ' good' : delay <= 1000 ? ' medium' : ' bad');
-          } else {
-            el.textContent = 'timeout';
-            el.className = 'latency timeout';
+    // 用 TEST_GROUP_DELAY 一次性测完整个组（mihomo 内部并发）
+    try {
+      const resp = await this.sendMessage('TEST_GROUP_DELAY', { group: this.state.currentGroup });
+      if (resp && resp.success && resp.data) {
+        const delays = resp.data;
+        for (const name of nodeNames) {
+          const delay = delays[name] || 0;
+          if (this.state.proxies[name]) {
+            this.state.proxies[name].delay = delay;
+          }
+          const el = document.querySelector(`.proxy-item[data-name="${CSS.escape(name)}"] .latency`);
+          if (el) {
+            if (delay > 0) {
+              el.textContent = `${delay}ms`;
+              el.className = 'latency' + (delay <= 200 ? ' good' : delay <= 1000 ? ' medium' : ' bad');
+            } else {
+              el.textContent = 'timeout';
+              el.className = 'latency timeout';
+            }
           }
         }
-        if (this.state.proxies[name]) {
-          this.state.proxies[name].delay = delay;
-        }
-        // 轻量模式：如果是当前选中节点，更新卡片
-        this.renderLiteNode();
-      }).catch(() => {
-        const el = document.querySelector(`.proxy-item[data-name="${CSS.escape(name)}"] .latency`);
-        if (el) { el.textContent = 'timeout'; el.className = 'latency timeout'; }
-      })
-    );
+      }
+    } catch {}
 
-    await Promise.allSettled(promises);
     this.isTesting = false;
+    this.renderLiteNode();
     if (btn) { btn.disabled = false; btn.textContent = '刷新延迟'; }
-    if (liteBtn) { liteBtn.disabled = false; liteBtn.textContent = '刷新延迟'; }
-    // 更新轻量面板（如果打开的话）
+    if (liteBtn) { liteBtn.disabled = false; liteBtn.textContent = '刷新延迟'; liteBtn.classList.remove('loading'); }
+    if (!isAuto) this.showToast(`延迟刷新完成，共 ${nodeNames.length} 个节点`, 'success');
     if (this.litePanelOpen) this.renderLitePanel();
   }
 

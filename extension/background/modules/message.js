@@ -42,12 +42,10 @@ export class MessageHandler {
 
     // 还没配置 secret，跳过连接，不报错
     if (!config || !config.secret) {
-      console.log('CONNECT: skipped — no secret configured yet');
       this.state.setState({ connected: false, connectError: null });
       return { needConfig: true };
     }
 
-    console.log('CONNECT: config =', JSON.stringify(config));
     this.api.updateConfig(
       config.mihomoAPI || 'http://127.0.0.1:9097',
       config.secret

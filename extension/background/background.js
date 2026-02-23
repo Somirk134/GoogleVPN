@@ -17,8 +17,6 @@ async function initialize() {
   if (initPromise) return initPromise;
 
   initPromise = (async () => {
-    console.log('Proxy Manager: Initializing...');
-
     state = new StateManager();
     api = new MihomoAPI(); // config 在 CONNECT 时从 storage 读取
     proxy = new ProxyController();
@@ -26,7 +24,6 @@ async function initialize() {
 
     await state.restore();
     initialized = true;
-    console.log('Proxy Manager: Initialized');
   })();
 
   return initPromise;
@@ -34,7 +31,6 @@ async function initialize() {
 
 // 安装
 chrome.runtime.onInstalled.addListener(async (details) => {
-  console.log('Proxy Manager: Installed/updated', details.reason);
   // 仅在完全没有 config 时写入默认值，避免覆盖用户已保存的配置
   const { config } = await chrome.storage.local.get('config');
   if (!config) {
@@ -49,7 +45,7 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     try {
       await messageHandler.handle(
         { type: 'CONNECT' }, null,
-        (resp) => console.log('Auto-connect result:', resp?.success ? 'OK' : resp?.error)
+        () => {}
       );
     } catch {}
   }
@@ -57,7 +53,6 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
 // 浏览器启动
 chrome.runtime.onStartup.addListener(async () => {
-  console.log('Proxy Manager: Browser started');
   await initialize();
 });
 
@@ -75,5 +70,3 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 chrome.runtime.onSuspend.addListener(async () => {
   if (state) await state.persist();
 });
-
-console.log('Proxy Manager: Service Worker loaded');

@@ -7,8 +7,6 @@ export class ProxyController {
   
   // 启用代理
   async enable(proxyHost = '127.0.0.1', proxyPort = 7890) {
-    console.log(`Enabling proxy: ${proxyHost}:${proxyPort}`);
-    
     const config = {
       mode: 'fixed_servers',
       rules: {
@@ -34,7 +32,6 @@ export class ProxyController {
             reject(chrome.runtime.lastError);
           } else {
             this.proxyConfig = config;
-            console.log('Proxy enabled successfully');
             resolve();
           }
         }
@@ -44,8 +41,6 @@ export class ProxyController {
   
   // 禁用代理
   async disable() {
-    console.log('Disabling proxy');
-    
     const config = {
       mode: 'direct'
     };
@@ -59,7 +54,6 @@ export class ProxyController {
             reject(chrome.runtime.lastError);
           } else {
             this.proxyConfig = null;
-            console.log('Proxy disabled successfully');
             resolve();
           }
         }
