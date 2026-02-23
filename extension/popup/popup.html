@@ -7,119 +7,210 @@
     <link rel="stylesheet" href="styles/popup.css">
 </head>
 <body>
-    <div id="app">
-        <!-- 左侧控制区 -->
-        <aside class="sidebar">
-            <div class="brand">
-                <span class="logo-icon">🛡️</span>
-                <span class="brand-title">Proxy Manager</span>
-            </div>
+    <!-- ========== 轻量模式 ========== -->
+    <div id="liteMode" class="lite-view">
+        <header class="lite-header">
+            <div class="lite-title">Proxy Manager</div>
+            <button class="lite-icon-btn" id="liteToFull" title="完整模式">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+                </svg>
+            </button>
+        </header>
 
-            <div class="glass-card status-card">
-                <div class="status-row">
-                    <span class="status-label">Mihomo</span>
-                    <div class="status-indicator">
-                        <span class="dot" id="statusIndicator"></span>
-                        <span class="status-text" id="statusText">未连接</span>
+        <main class="lite-core">
+            <button class="power-switch" id="powerSwitch">
+                <span class="power-text" id="powerText">OFF</span>
+            </button>
+            <div class="lite-status" id="liteStatus">未连接</div>
+            <button class="lite-test-btn" id="liteTestAll">刷新延迟</button>
+        </main>
+
+        <div class="lite-info">
+            <!-- 当前节点卡片 -->
+            <div class="lite-card lite-node-card" id="liteNodeCard">
+                <div class="lite-node-left">
+                    <div class="lite-country" id="liteCountry">--</div>
+                    <div class="lite-node-detail">
+                        <div class="lite-node-name" id="liteNodeName">未选择节点</div>
+                        <div class="lite-node-ping" id="liteNodePing">-</div>
                     </div>
                 </div>
-                <div class="status-row">
-                    <span class="status-label">系统代理</span>
-                    <span class="badge badge-disabled" id="proxyStatusBadge">未启用</span>
-                </div>
-            </div>
-
-            <div class="controls">
-                <button id="toggleProxy" class="btn btn-primary">
-                    <span class="btn-icon">▶</span> 启用代理
-                </button>
-                <button id="testAll" class="btn btn-secondary">
-                    刷新延迟
-                </button>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#8b949e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="9 18 15 12 9 6"/>
+                </svg>
             </div>
 
             <!-- IP 信息 -->
-            <div class="glass-card ip-card">
-                <div class="ip-header">
-                    <span class="ip-label">IP 信息</span>
-                    <div class="ip-actions">
-                        <button class="ip-action-btn" id="ipToggle" title="显示/隐藏">
-                            <svg class="eye-icon" id="eyeIcon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
-                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                                <circle cx="12" cy="12" r="3"/>
-                            </svg>
-                        </button>
-                        <button class="ip-action-btn" id="ipRefresh" title="刷新">
-                            <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5">
-                                <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
-                                <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
-                            </svg>
-                        </button>
-                    </div>
-                </div>
-                <div class="ip-detail-list" id="ipDetailList">
-                    <div class="ip-detail-row">
-                        <span class="ip-detail-label">IP</span>
-                        <span class="ip-detail-value ip-address-val" id="ipAddress">检测中...</span>
-                    </div>
-                    <div class="ip-detail-row">
-                        <span class="ip-detail-label">国家</span>
-                        <span class="ip-detail-value" id="ipCountry">-</span>
-                    </div>
-                    <div class="ip-detail-row">
-                        <span class="ip-detail-label">位置</span>
-                        <span class="ip-detail-value" id="ipLocation">-</span>
-                    </div>
-                    <div class="ip-detail-row">
-                        <span class="ip-detail-label">组织</span>
-                        <span class="ip-detail-value" id="ipOrg">-</span>
-                    </div>
-                    <div class="ip-detail-row">
-                        <span class="ip-detail-label">时区</span>
-                        <span class="ip-detail-value" id="ipTimezone">-</span>
-                    </div>
-                    <div class="ip-detail-row">
-                        <span class="ip-detail-label">ASN</span>
-                        <span class="ip-detail-value" id="ipASN">-</span>
-                    </div>
+            <div class="lite-card lite-ip-card">
+                <div class="lite-ip-label">IP</div>
+                <div class="lite-ip-right">
+                    <div class="lite-ip-text" id="liteIP">检测中...</div>
+                    <button class="lite-icon-btn lite-eye-btn" id="liteEyeBtn">
+                        <svg id="liteEyeIcon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                    </button>
                 </div>
             </div>
+        </div>
 
-            <!-- 迷你流量图 -->
-            <div class="glass-card mini-traffic-card">
-                <div class="mini-traffic-header">
-                    <span class="mini-traffic-label">流量</span>
-                    <div class="mini-traffic-speeds">
-                        <span class="mini-speed up-speed">↑ <span id="miniUpSpeed">0 B/s</span></span>
-                        <span class="mini-speed down-speed">↓ <span id="miniDownSpeed">0 B/s</span></span>
-                    </div>
-                </div>
-                <canvas id="miniTrafficChart" width="178" height="40"></canvas>
+        <!-- 节点选择浮层（固定定位，底部滑出） -->
+        <div class="lite-overlay" id="liteOverlay"></div>
+        <div class="lite-panel" id="litePanel">
+            <div class="lite-panel-header">
+                <select class="lite-group-select" id="liteGroupSelect"></select>
             </div>
+            <div class="lite-node-list" id="liteNodeList"></div>
+        </div>
 
-            <button id="settings" class="btn-settings">
-                <span>⚙️ 参数设置</span>
+        <!-- IP 详情浮层 -->
+        <div class="lite-panel lite-ip-panel" id="liteIPPanel">
+            <div class="lite-panel-header">
+                <span class="lite-panel-title">IP 详情</span>
+                <button class="lite-icon-btn" id="liteIPRefresh" title="刷新">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
+                        <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="lite-ip-detail-list" id="liteIPDetailList">
+                <div class="lite-ip-detail-row"><span class="lite-ip-detail-label">IP</span><span class="lite-ip-detail-value" id="liteIPAddr">-</span></div>
+                <div class="lite-ip-detail-row"><span class="lite-ip-detail-label">国家</span><span class="lite-ip-detail-value" id="liteIPCountry">-</span></div>
+                <div class="lite-ip-detail-row"><span class="lite-ip-detail-label">位置</span><span class="lite-ip-detail-value" id="liteIPLocation">-</span></div>
+                <div class="lite-ip-detail-row"><span class="lite-ip-detail-label">组织</span><span class="lite-ip-detail-value" id="liteIPOrg">-</span></div>
+                <div class="lite-ip-detail-row"><span class="lite-ip-detail-label">时区</span><span class="lite-ip-detail-value" id="liteIPTimezone">-</span></div>
+                <div class="lite-ip-detail-row"><span class="lite-ip-detail-label">ASN</span><span class="lite-ip-detail-value" id="liteIPASN">-</span></div>
+            </div>
+        </div>
+
+        <!-- 设置浮层 -->
+        <div class="lite-panel lite-settings-panel" id="liteSettingsPanel">
+            <div class="lite-panel-header">
+                <span class="lite-panel-title">连接设置</span>
+                <button class="lite-icon-btn" id="liteSettingsMore" title="更多设置">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+                        <polyline points="15 3 21 3 21 9"/>
+                        <line x1="10" y1="14" x2="21" y2="3"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="lite-settings-body">
+                <div class="lite-field">
+                    <label class="lite-field-label">API 地址</label>
+                    <input type="text" class="lite-field-input" id="liteAPIInput" placeholder="http://127.0.0.1:9097">
+                </div>
+                <div class="lite-field">
+                    <label class="lite-field-label">Secret 密钥</label>
+                    <input type="password" class="lite-field-input" id="liteSecretInput" placeholder="留空表示无密钥">
+                </div>
+                <div class="lite-settings-actions">
+                    <button class="lite-settings-btn lite-btn-test" id="liteTestConn">测试连接</button>
+                    <button class="lite-settings-btn lite-btn-save" id="liteSaveSettings">保存</button>
+                </div>
+                <div class="lite-settings-status" id="liteSettingsStatus"></div>
+            </div>
+        </div>
+
+        <footer class="lite-footer">
+            <button class="lite-icon-btn" id="liteSettings" title="设置">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
             </button>
-        </aside>
-
-        <!-- 右侧内容区 -->
-        <main class="content">
-            <header class="content-header">
-                <div class="group-select-wrapper">
-                    <select id="groupSelect" class="group-select">
-                        <option value="GLOBAL">GLOBAL</option>
-                    </select>
-                </div>
-            </header>
-            <div class="proxy-list" id="proxyList">
-                <div class="empty-state">
-                    <div class="empty-icon">📭</div>
-                    <div class="empty-text">正在加载节点...</div>
-                </div>
-            </div>
-        </main>
+            <a class="lite-mode-link" id="liteToFullLink">完整模式 &rarr;</a>
+        </footer>
     </div>
-    
-    <script type="module" src="popup.js"></script>
+
+    <!-- ========== 完整模式 ========== -->
+    <div id="fullMode" class="full-view">
+        <div id="app">
+            <aside class="sidebar">
+                <div class="brand">
+                    <span class="brand-title">Proxy Manager</span>
+                </div>
+
+                <div class="glass-card status-card">
+                    <div class="status-row">
+                        <span class="status-label">Mihomo</span>
+                        <div class="status-indicator">
+                            <span class="dot" id="statusIndicator"></span>
+                            <span class="status-text" id="statusText">未连接</span>
+                        </div>
+                    </div>
+                    <div class="status-row">
+                        <span class="status-label">系统代理</span>
+                        <span class="badge badge-disabled" id="proxyStatusBadge">未启用</span>
+                    </div>
+                </div>
+
+                <div class="controls">
+                    <button id="toggleProxy" class="btn btn-primary">
+                        <span class="btn-icon">▶</span> 启用代理
+                    </button>
+                    <button id="testAll" class="btn btn-secondary">刷新延迟</button>
+                </div>
+
+                <div class="glass-card ip-card">
+                    <div class="ip-header">
+                        <span class="ip-label">IP 信息</span>
+                        <div class="ip-actions">
+                            <button class="ip-action-btn" id="ipToggle" title="显示/隐藏">
+                                <svg class="eye-icon" id="eyeIcon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                                    <circle cx="12" cy="12" r="3"/>
+                                </svg>
+                            </button>
+                            <button class="ip-action-btn" id="ipRefresh" title="刷新">
+                                <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5">
+                                    <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
+                                    <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="ip-detail-list" id="ipDetailList">
+                        <div class="ip-detail-row"><span class="ip-detail-label">IP</span><span class="ip-detail-value ip-address-val" id="ipAddress">检测中...</span></div>
+                        <div class="ip-detail-row"><span class="ip-detail-label">国家</span><span class="ip-detail-value" id="ipCountry">-</span></div>
+                        <div class="ip-detail-row"><span class="ip-detail-label">位置</span><span class="ip-detail-value" id="ipLocation">-</span></div>
+                        <div class="ip-detail-row"><span class="ip-detail-label">组织</span><span class="ip-detail-value" id="ipOrg">-</span></div>
+                        <div class="ip-detail-row"><span class="ip-detail-label">时区</span><span class="ip-detail-value" id="ipTimezone">-</span></div>
+                        <div class="ip-detail-row"><span class="ip-detail-label">ASN</span><span class="ip-detail-value" id="ipASN">-</span></div>
+                    </div>
+                </div>
+
+                <div class="glass-card mini-traffic-card">
+                    <div class="mini-traffic-header">
+                        <span class="mini-traffic-label">流量</span>
+                        <div class="mini-traffic-speeds">
+                            <span class="mini-speed up-speed">↑ <span id="miniUpSpeed">0 B/s</span></span>
+                            <span class="mini-speed down-speed">↓ <span id="miniDownSpeed">0 B/s</span></span>
+                        </div>
+                    </div>
+                    <canvas id="miniTrafficChart" width="178" height="40"></canvas>
+                </div>
+
+                <button id="settings" class="btn-settings"><span>设置</span></button>
+                <button id="fullToLite" class="btn-settings btn-lite-mode"><span>轻量模式</span></button>
+            </aside>
+
+            <main class="content">
+                <header class="content-header">
+                    <div class="group-select-wrapper">
+                        <select id="groupSelect" class="group-select"><option value="GLOBAL">GLOBAL</option></select>
+                    </div>
+                </header>
+                <div class="proxy-list" id="proxyList">
+                    <div class="empty-state"><div class="empty-icon">...</div><div class="empty-text">正在加载节点...</div></div>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <script src="popup.js"></script>
 </body>
 </html>

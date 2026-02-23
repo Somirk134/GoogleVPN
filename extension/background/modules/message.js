@@ -38,14 +38,20 @@ export class MessageHandler {
 
   // 连接 mihomo 并拉取代理列表
   async connect() {
-    // 读取用户配置
     const { config } = await chrome.storage.local.get('config');
-    if (config) {
-      this.api.updateConfig(
-        config.mihomoAPI || 'http://127.0.0.1:9097',
-        config.secret || ''
-      );
+
+    // 还没配置 secret，跳过连接，不报错
+    if (!config || !config.secret) {
+      console.log('CONNECT: skipped — no secret configured yet');
+      this.state.setState({ connected: false, connectError: null });
+      return { needConfig: true };
     }
+
+    console.log('CONNECT: config =', JSON.stringify(config));
+    this.api.updateConfig(
+      config.mihomoAPI || 'http://127.0.0.1:9097',
+      config.secret
+    );
 
     // 测试连接
     const version = await this.api.getVersion();

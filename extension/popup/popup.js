@@ -1,4 +1,5 @@
 // Popup UI
+console.log('Popup: script loaded');
 
 function formatSpeed(bytes) {
   if (!bytes || bytes === 0) return '0 B/s';
@@ -13,45 +14,27 @@ class PopupApp {
     this.state = null;
     this.isTesting = false;
     this.ipVisible = true;
+    this.liteIpVisible = true;
     this.ipData = null;
-    // 迷你流量图数据
     this.chartData = { up: [], down: [] };
     this.maxChartPoints = 30;
     this.trafficReader = null;
+    this.mode = 'lite';
+    this.litePanelOpen = false;
     this.init();
   }
 
   async init() {
-    let connectOk = false;
     try {
-      const cr = await this.sendMessage('CONNECT');
-      connectOk = cr && cr.success;
-    } catch (e) {}
+      const { pmPopupMode } = await chrome.storage.local.get('pmPopupMode');
+      if (pmPopupMode === 'full') this.mode = 'full';
+    } catch {}
 
-    const resp = await this.sendMessage('GET_STATE');
-    this.state = (resp && resp.success) ? resp.data : this.defaultState();
-
-    // 未连接 → 直接打开设置页
-    if (!connectOk && !this.state.connected) {
-      chrome.runtime.openOptionsPage();
-      window.close();
-      return;
-    }
-
+    this.showMode(this.mode);
     this.bindEvents();
+    console.log('Popup: bindEvents done, mode =', this.mode);
 
-    // 连接成功但代理未启用 → 自动启用
-    if (this.state.connected && !this.state.proxyEnabled) {
-      await this.sendMessage('TOGGLE_PROXY', { enabled: true });
-      const updated = await this.sendMessage('GET_STATE');
-      if (updated && updated.success) this.state = updated.data;
-    }
-
-    this.render();
-
-    // 自动检测 IP（不管代理开没开）
-    this.fetchIP();
-
+    // 监听状态广播
     chrome.runtime.onMessage.addListener((msg) => {
       if (msg.type === 'STATE_UPDATE') {
         this.state = msg.state;
@@ -59,11 +42,53 @@ class PopupApp {
       }
     });
 
-    // 拉延迟
+    // 第一步：先看 background 是不是已经连上了
+    const stateResp = await this.sendMessage('GET_STATE');
+    this.state = (stateResp && stateResp.success) ? stateResp.data : this.defaultState();
+
     if (this.state.connected) {
-      this.runSpeedTest(true);
-      this.startTrafficStream();
+      // 已连接，直接用
+      await this.onConnected();
+      return;
     }
+
+    // 第二步：没连接，尝试 CONNECT
+    let connectOk = false;
+    let needConfig = false;
+    try {
+      const cr = await this.sendMessage('CONNECT');
+      connectOk = cr && cr.success;
+      needConfig = cr && cr.success && cr.data && cr.data.needConfig;
+    } catch {}
+
+    if (connectOk && !needConfig) {
+      // 重新拿状态
+      const updated = await this.sendMessage('GET_STATE');
+      if (updated && updated.success) this.state = updated.data;
+      await this.onConnected();
+      return;
+    }
+
+    // 第三步：未配置或连不上，渲染未连接状态，打开设置页
+    console.log('Popup:', needConfig ? 'no secret configured' : 'connect failed', '— opening settings');
+    this.render();
+    chrome.runtime.openOptionsPage();
+  }
+
+  async onConnected() {
+    console.log('Popup: onConnected, state =', this.state.connected, this.state.proxyEnabled);
+    // 自动启用代理
+    if (!this.state.proxyEnabled) {
+      try {
+        await this.sendMessage('TOGGLE_PROXY', { enabled: true });
+        const updated = await this.sendMessage('GET_STATE');
+        if (updated && updated.success) this.state = updated.data;
+      } catch {}
+    }
+    this.render();
+    this.fetchIP();
+    this.runSpeedTest(true);
+    this.startTrafficStream();
   }
 
   defaultState() {
@@ -79,7 +104,68 @@ class PopupApp {
     return chrome.runtime.sendMessage({ type, data });
   }
 
+  // === 模式切换 ===
+  showMode(mode) {
+    this.mode = mode;
+    const lite = document.getElementById('liteMode');
+    const full = document.getElementById('fullMode');
+    if (mode === 'full') {
+      document.body.className = 'mode-full';
+      lite.style.display = 'none';
+      full.style.display = 'block';
+    } else {
+      document.body.className = '';
+      lite.style.display = 'flex';
+      full.style.display = 'none';
+    }
+    chrome.storage.local.set({ pmPopupMode: mode }).catch(() => {});
+  }
+
+  switchMode() {
+    const next = this.mode === 'lite' ? 'full' : 'lite';
+    chrome.storage.local.set({ pmPopupMode: next }).then(() => {
+      window.close();
+    }).catch(() => {});
+  }
+
+  // === 事件绑定 ===
   bindEvents() {
+    // 模式切换
+    document.getElementById('liteToFull').addEventListener('click', () => this.switchMode());
+    document.getElementById('liteToFullLink').addEventListener('click', () => this.switchMode());
+    document.getElementById('fullToLite').addEventListener('click', () => this.switchMode());
+
+    // 轻量模式
+    document.getElementById('powerSwitch').addEventListener('click', () => this.toggleProxy());
+    document.getElementById('liteNodeCard').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleLitePanel();
+    });
+    document.getElementById('liteEyeBtn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.toggleLiteIP();
+    });
+    document.getElementById('liteSettings').addEventListener('click', () => chrome.runtime.openOptionsPage());
+    document.getElementById('liteTestAll').addEventListener('click', () => this.runSpeedTest(false));
+
+    // IP 卡片点击弹出详情
+    document.querySelector('.lite-ip-card').addEventListener('click', (e) => {
+      if (e.target.closest('.lite-eye-btn')) return;
+      this.toggleLiteIPPanel();
+    });
+    document.getElementById('liteIPRefresh').addEventListener('click', () => this.fetchIP());
+    document.getElementById('liteGroupSelect').addEventListener('change', (e) => {
+      this.state.currentGroup = e.target.value;
+      this.renderLitePanel();
+      this.renderLiteNode();
+    });
+
+    // 点击遮罩关闭面板
+    document.getElementById('liteOverlay').addEventListener('click', () => {
+      this.closeLitePanels();
+    });
+
+    // 完整模式
     document.getElementById('toggleProxy').addEventListener('click', () => this.toggleProxy());
     document.getElementById('testAll').addEventListener('click', () => this.runSpeedTest(false));
     document.getElementById('groupSelect').addEventListener('change', (e) => {
@@ -91,13 +177,76 @@ class PopupApp {
     document.getElementById('ipRefresh').addEventListener('click', () => this.fetchIP());
   }
 
+  toggleLitePanel() {
+    const panel = document.getElementById('litePanel');
+    const overlay = document.getElementById('liteOverlay');
+    this.litePanelOpen = !this.litePanelOpen;
+    if (this.litePanelOpen) {
+      // 先关闭 IP 面板
+      document.getElementById('liteIPPanel').classList.remove('open');
+      this.renderLitePanel();
+      panel.classList.add('open');
+      overlay.classList.add('open');
+    } else {
+      panel.classList.remove('open');
+      overlay.classList.remove('open');
+    }
+  }
+
+  toggleLiteIPPanel() {
+    const panel = document.getElementById('liteIPPanel');
+    const overlay = document.getElementById('liteOverlay');
+    const isOpen = panel.classList.contains('open');
+    if (isOpen) {
+      panel.classList.remove('open');
+      overlay.classList.remove('open');
+    } else {
+      // 先关闭节点面板
+      document.getElementById('litePanel').classList.remove('open');
+      this.litePanelOpen = false;
+      this.renderLiteIPDetail();
+      panel.classList.add('open');
+      overlay.classList.add('open');
+    }
+  }
+
+  closeLitePanels() {
+    document.getElementById('litePanel').classList.remove('open');
+    document.getElementById('liteIPPanel').classList.remove('open');
+    document.getElementById('liteOverlay').classList.remove('open');
+    this.litePanelOpen = false;
+  }
+
+  renderLiteIPDetail() {
+    if (!this.ipData) return;
+    const flag = this.ipData.countryCode ? this.countryFlag(this.ipData.countryCode) + ' ' : '';
+    document.getElementById('liteIPAddr').textContent = this.ipData.ip || '-';
+    document.getElementById('liteIPCountry').textContent = flag + (this.ipData.country || '-');
+    document.getElementById('liteIPLocation').textContent = this.ipData.location || '-';
+    document.getElementById('liteIPOrg').textContent = this.ipData.org || '-';
+    document.getElementById('liteIPTimezone').textContent = this.ipData.timezone || '-';
+    document.getElementById('liteIPASN').textContent = this.ipData.asn || '-';
+  }
+
+  toggleLiteIP() {
+    this.liteIpVisible = !this.liteIpVisible;
+    const ipText = document.getElementById('liteIP');
+    const icon = document.getElementById('liteEyeIcon');
+    if (this.liteIpVisible) {
+      ipText.classList.remove('blurred');
+      icon.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+    } else {
+      ipText.classList.add('blurred');
+      icon.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>';
+    }
+  }
+
   // === IP 检测 ===
   toggleIPVisibility() {
     this.ipVisible = !this.ipVisible;
     const list = document.getElementById('ipDetailList');
     const btn = document.getElementById('ipToggle');
     const eyeIcon = document.getElementById('eyeIcon');
-
     if (this.ipVisible) {
       list.classList.remove('masked');
       btn.classList.remove('masked');
@@ -110,6 +259,11 @@ class PopupApp {
   }
 
   async fetchIP() {
+    // 轻量模式 IP 显示
+    const liteIP = document.getElementById('liteIP');
+    if (liteIP) liteIP.textContent = '检测中...';
+
+    // 完整模式 IP 显示
     const ipEl = document.getElementById('ipAddress');
     const countryEl = document.getElementById('ipCountry');
     const locEl = document.getElementById('ipLocation');
@@ -118,37 +272,31 @@ class PopupApp {
     const asnEl = document.getElementById('ipASN');
     const refreshBtn = document.getElementById('ipRefresh');
 
-    ipEl.textContent = '检测中...';
-    countryEl.textContent = '-';
-    locEl.textContent = '-';
-    orgEl.textContent = '-';
-    tzEl.textContent = '-';
-    asnEl.textContent = '-';
-    refreshBtn.classList.add('spinning');
+    if (ipEl) ipEl.textContent = '检测中...';
+    if (countryEl) countryEl.textContent = '-';
+    if (locEl) locEl.textContent = '-';
+    if (orgEl) orgEl.textContent = '-';
+    if (tzEl) tzEl.textContent = '-';
+    if (asnEl) asnEl.textContent = '-';
+    if (refreshBtn) refreshBtn.classList.add('spinning');
 
     this.ipData = null;
 
-    // 从 popup 直接 fetch，加 cache-busting 防止切换节点后拿到缓存的旧 IP
     const nocache = `_t=${Date.now()}`;
     const apis = [
       {
         url: `http://ip-api.com/json/?fields=query,country,countryCode,regionName,city,timezone,isp,org,as&${nocache}`,
         parse: (d) => ({
-          ip: d.query || '-',
-          country: d.country || '-',
-          countryCode: d.countryCode || '',
+          ip: d.query || '-', country: d.country || '-', countryCode: d.countryCode || '',
           location: [d.city, d.regionName].filter(Boolean).join(', ') || '-',
-          org: d.org || d.isp || '-',
-          timezone: d.timezone || '-',
+          org: d.org || d.isp || '-', timezone: d.timezone || '-',
           asn: d.as ? d.as.split(' ')[0] : '-',
         })
       },
       {
         url: `https://ipwho.is/?${nocache}`,
         parse: (d) => ({
-          ip: d.ip || '-',
-          country: d.country || '-',
-          countryCode: d.country_code || '',
+          ip: d.ip || '-', country: d.country || '-', countryCode: d.country_code || '',
           location: [d.city, d.region].filter(Boolean).join(', ') || '-',
           org: (d.connection && (d.connection.org || d.connection.isp)) || '-',
           timezone: (d.timezone && d.timezone.id) || '-',
@@ -158,20 +306,15 @@ class PopupApp {
       {
         url: `https://ipapi.co/json/?${nocache}`,
         parse: (d) => ({
-          ip: d.ip || '-',
-          country: d.country_name || '-',
-          countryCode: d.country_code || '',
+          ip: d.ip || '-', country: d.country_name || '-', countryCode: d.country_code || '',
           location: [d.city, d.region].filter(Boolean).join(', ') || '-',
-          org: d.org || '-',
-          timezone: d.timezone || '-',
-          asn: d.asn || '-',
+          org: d.org || '-', timezone: d.timezone || '-', asn: d.asn || '-',
         })
       }
     ];
 
     const fetchOpts = {
-      signal: AbortSignal.timeout(6000),
-      cache: 'no-store',
+      signal: AbortSignal.timeout(6000), cache: 'no-store',
       headers: { 'Cache-Control': 'no-cache', 'Pragma': 'no-cache' }
     };
 
@@ -203,37 +346,75 @@ class PopupApp {
       }
     }
 
-    refreshBtn.classList.remove('spinning');
+    if (refreshBtn) refreshBtn.classList.remove('spinning');
+    this.updateIPDisplay();
+  }
 
+  updateIPDisplay() {
+    if (!this.ipData) return;
     const flag = this.ipData.countryCode ? this.countryFlag(this.ipData.countryCode) + ' ' : '';
 
-    ipEl.textContent = this.ipData.ip;
-    countryEl.textContent = flag + this.ipData.country;
-    locEl.textContent = this.ipData.location;
-    orgEl.textContent = this.ipData.org;
-    tzEl.textContent = this.ipData.timezone;
-    asnEl.textContent = this.ipData.asn;
+    // 轻量模式
+    const liteIP = document.getElementById('liteIP');
+    if (liteIP) liteIP.textContent = this.ipData.ip;
+
+    // 完整模式
+    const ipEl = document.getElementById('ipAddress');
+    if (ipEl) ipEl.textContent = this.ipData.ip;
+    const countryEl = document.getElementById('ipCountry');
+    if (countryEl) countryEl.textContent = flag + this.ipData.country;
+    const locEl = document.getElementById('ipLocation');
+    if (locEl) locEl.textContent = this.ipData.location;
+    const orgEl = document.getElementById('ipOrg');
+    if (orgEl) orgEl.textContent = this.ipData.org;
+    const tzEl = document.getElementById('ipTimezone');
+    if (tzEl) tzEl.textContent = this.ipData.timezone;
+    const asnEl = document.getElementById('ipASN');
+    if (asnEl) asnEl.textContent = this.ipData.asn;
 
     if (!this.ipVisible) {
-      document.getElementById('ipDetailList').classList.add('masked');
+      const list = document.getElementById('ipDetailList');
+      if (list) list.classList.add('masked');
+    }
+    if (!this.liteIpVisible) {
+      const liteIPEl = document.getElementById('liteIP');
+      if (liteIPEl) liteIPEl.classList.add('blurred');
     }
   }
 
-  // 国家代码 → 国旗 emoji（regional indicator symbols）
   countryFlag(code) {
     if (!code || code.length !== 2) return '';
-    const base = 0x1F1E6 - 65; // 'A' = 65
+    const base = 0x1F1E6 - 65;
     return String.fromCodePoint(base + code.charCodeAt(0), base + code.charCodeAt(1));
+  }
+
+  // 从节点名提取国家代码
+  guessCountryCode(name) {
+    const map = {
+      '香港': 'HK', 'HK': 'HK', '日本': 'JP', 'JP': 'JP',
+      '新加坡': 'SG', 'SG': 'SG', '美国': 'US', 'US': 'US',
+      '台湾': 'TW', 'TW': 'TW', '韩国': 'KR', 'KR': 'KR',
+      '英国': 'GB', 'GB': 'GB', 'UK': 'GB',
+      '德国': 'DE', 'DE': 'DE', '法国': 'FR', 'FR': 'FR',
+      '加拿大': 'CA', 'CA': 'CA', '澳大利亚': 'AU', 'AU': 'AU',
+      '印度': 'IN', 'IN': 'IN', '俄罗斯': 'RU', 'RU': 'RU',
+      '土耳其': 'TR', 'TR': 'TR', '巴西': 'BR', 'BR': 'BR',
+      '荷兰': 'NL', 'NL': 'NL', '阿根廷': 'AR', 'AR': 'AR',
+    };
+    for (const [key, code] of Object.entries(map)) {
+      if (name.includes(key)) return code;
+    }
+    return '--';
   }
 
   // === 测速 ===
   async runSpeedTest(isAuto) {
     const btn = document.getElementById('testAll');
-    btn.disabled = true;
-    btn.textContent = '刷新中...';
+    const liteBtn = document.getElementById('liteTestAll');
+    if (btn) { btn.disabled = true; btn.textContent = '刷新中...'; }
+    if (liteBtn) { liteBtn.disabled = true; liteBtn.textContent = '刷新中...'; }
     this.isTesting = true;
 
-    // 收集当前组内所有普通节点名
     const proxies = this.state.proxies || {};
     const group = proxies[this.state.currentGroup];
     const skipNodes = new Set(['DIRECT', 'REJECT']);
@@ -249,7 +430,7 @@ class PopupApp {
       }
     }
 
-    // 所有节点先显示 loading
+    // 完整模式：节点显示 loading
     nodeNames.forEach(name => {
       const el = document.querySelector(`.proxy-item[data-name="${CSS.escape(name)}"] .latency`);
       if (el) {
@@ -258,10 +439,10 @@ class PopupApp {
       }
     });
 
-    // 并发测速，每个节点独立返回后立刻更新 UI
     const promises = nodeNames.map(name =>
       this.sendMessage('TEST_NODE_DELAY', { name }).then(resp => {
         const delay = (resp && resp.success && resp.data) ? resp.data.delay : 0;
+        // 完整模式更新
         const el = document.querySelector(`.proxy-item[data-name="${CSS.escape(name)}"] .latency`);
         if (el) {
           if (delay > 0) {
@@ -272,38 +453,72 @@ class PopupApp {
             el.className = 'latency timeout';
           }
         }
-        // 同步到本地 state
         if (this.state.proxies[name]) {
           this.state.proxies[name].delay = delay;
         }
+        // 轻量模式：如果是当前选中节点，更新卡片
+        this.renderLiteNode();
       }).catch(() => {
         const el = document.querySelector(`.proxy-item[data-name="${CSS.escape(name)}"] .latency`);
-        if (el) {
-          el.textContent = 'timeout';
-          el.className = 'latency timeout';
-        }
+        if (el) { el.textContent = 'timeout'; el.className = 'latency timeout'; }
       })
     );
 
     await Promise.allSettled(promises);
-
     this.isTesting = false;
-    btn.disabled = false;
-    btn.textContent = '刷新延迟';
+    if (btn) { btn.disabled = false; btn.textContent = '刷新延迟'; }
+    if (liteBtn) { liteBtn.disabled = false; liteBtn.textContent = '刷新延迟'; }
+    // 更新轻量面板（如果打开的话）
+    if (this.litePanelOpen) this.renderLitePanel();
   }
 
   // === 代理控制 ===
   async toggleProxy() {
+    if (this._toggling) return;
+    this._toggling = true;
+
+    // 如果未连接，先尝试连接
+    if (!this.state.connected) {
+      try {
+        const cr = await this.sendMessage('CONNECT');
+        if (!cr || !cr.success) {
+          this.showToast('连接失败，请检查设置');
+          this._toggling = false;
+          return;
+        }
+        const updated = await this.sendMessage('GET_STATE');
+        if (updated && updated.success) this.state = updated.data;
+      } catch {
+        this.showToast('连接失败，请检查设置');
+        this._toggling = false;
+        return;
+      }
+    }
+
     const enabled = !this.state.proxyEnabled;
+
+    // 乐观更新：立刻切换 UI
+    this.state.proxyEnabled = enabled;
+    this.render();
+
+    // 后台执行实际操作
     try {
       const resp = await this.sendMessage('TOGGLE_PROXY', { enabled });
-      if (!resp || !resp.success) this.showToast(resp ? resp.error : '操作失败');
-      else {
-        // 切换代理后自动重新检测 IP
+      if (!resp || !resp.success) {
+        // 回滚
+        this.state.proxyEnabled = !enabled;
+        this.render();
+        this.showToast(resp ? resp.error : '操作失败');
+      } else {
         this.fetchIP();
+        if (enabled) this.startTrafficStream();
       }
     } catch (e) {
+      this.state.proxyEnabled = !enabled;
+      this.render();
       this.showToast('操作失败: ' + e.message);
+    } finally {
+      this._toggling = false;
     }
   }
 
@@ -316,7 +531,6 @@ class PopupApp {
         this.showToast(resp ? resp.error : '切换失败');
       } else {
         this.showToast(`已切换到 ${proxyName}`, 'success');
-        // 切换节点后等连接建立再检测 IP
         setTimeout(() => this.fetchIP(), 1500);
       }
     } catch { this.showToast('切换失败'); }
@@ -325,6 +539,156 @@ class PopupApp {
   // === 渲染 ===
   render() {
     if (!this.state) return;
+    this.renderLite();
+    this.renderFull();
+  }
+
+  // --- 轻量模式渲染 ---
+  renderLite() {
+    const sw = document.getElementById('powerSwitch');
+    const txt = document.getElementById('powerText');
+    const status = document.getElementById('liteStatus');
+    if (!sw) return;
+
+    if (this.state.proxyEnabled && this.state.connected) {
+      sw.classList.add('active');
+      txt.textContent = 'ON';
+      status.textContent = this.state.mihomoVersion ? `已连接 ${this.state.mihomoVersion}` : '已连接';
+    } else if (this.state.connected) {
+      sw.classList.remove('active');
+      txt.textContent = 'OFF';
+      status.textContent = '代理已关闭';
+    } else {
+      sw.classList.remove('active');
+      txt.textContent = 'OFF';
+      status.textContent = '未连接';
+    }
+
+    this.renderLiteGroups();
+    this.renderLiteNode();
+  }
+
+  renderLiteGroups() {
+    const select = document.getElementById('liteGroupSelect');
+    if (!select) return;
+    select.innerHTML = '';
+    const proxies = this.state.proxies || {};
+    const builtIn = new Set(['GLOBAL', 'DIRECT', 'REJECT']);
+    const groups = Object.keys(proxies).filter(name => {
+      if (builtIn.has(name)) return false;
+      const p = proxies[name];
+      return p && (p.type === 'Selector' || p.type === 'URLTest' || p.type === 'Fallback');
+    });
+
+    if (groups.length === 0) {
+      const opt = document.createElement('option');
+      opt.textContent = '无代理组';
+      select.appendChild(opt);
+      return;
+    }
+
+    if (!groups.includes(this.state.currentGroup)) {
+      this.state.currentGroup = groups[0];
+    }
+
+    groups.forEach(g => {
+      const opt = document.createElement('option');
+      opt.value = g;
+      opt.textContent = g;
+      opt.selected = g === this.state.currentGroup;
+      select.appendChild(opt);
+    });
+  }
+
+  renderLiteNode() {
+    const proxies = this.state.proxies || {};
+    const group = proxies[this.state.currentGroup];
+    const nameEl = document.getElementById('liteNodeName');
+    const pingEl = document.getElementById('liteNodePing');
+    const countryEl = document.getElementById('liteCountry');
+    if (!nameEl) return;
+
+    if (!group || !group.now) {
+      nameEl.textContent = '未选择节点';
+      pingEl.textContent = '-';
+      pingEl.className = 'lite-node-ping';
+      countryEl.textContent = '--';
+      return;
+    }
+
+    const current = proxies[group.now];
+    nameEl.textContent = group.now;
+    countryEl.textContent = this.guessCountryCode(group.now);
+
+    if (current && current.delay && current.delay > 0) {
+      pingEl.textContent = `${current.delay}ms`;
+      pingEl.className = 'lite-node-ping ' + (current.delay <= 200 ? 'ping-green' : current.delay <= 1000 ? 'ping-yellow' : 'ping-red');
+    } else {
+      pingEl.textContent = current ? 'timeout' : '-';
+      pingEl.className = 'lite-node-ping ping-gray';
+    }
+  }
+
+  renderLitePanel() {
+    const list = document.getElementById('liteNodeList');
+    if (!list) return;
+    list.innerHTML = '';
+    const proxies = this.state.proxies || {};
+    const group = proxies[this.state.currentGroup];
+    if (!group || !group.all) return;
+
+    const skipNodes = new Set(['DIRECT', 'REJECT']);
+
+    group.all.forEach(name => {
+      if (skipNodes.has(name)) return;
+      const proxy = proxies[name];
+      if (!proxy) return;
+      const isSubGroup = proxy.type === 'Selector' || proxy.type === 'URLTest' || proxy.type === 'Fallback';
+      if (isSubGroup) return;
+
+      const item = document.createElement('div');
+      item.className = 'lite-list-item' + (name === group.now ? ' active' : '');
+
+      const left = document.createElement('div');
+      left.className = 'lite-list-left';
+
+      const cc = document.createElement('div');
+      cc.className = 'lite-country';
+      cc.textContent = this.guessCountryCode(name);
+
+      const nm = document.createElement('div');
+      nm.className = 'lite-list-name';
+      nm.textContent = name;
+
+      left.appendChild(cc);
+      left.appendChild(nm);
+
+      const ping = document.createElement('div');
+      ping.className = 'lite-list-ping';
+      if (proxy.delay && proxy.delay > 0) {
+        ping.textContent = `${proxy.delay}ms`;
+        ping.classList.add(proxy.delay <= 200 ? 'ping-green' : proxy.delay <= 1000 ? 'ping-yellow' : 'ping-red');
+      } else {
+        ping.textContent = 'timeout';
+        ping.classList.add('ping-gray');
+      }
+
+      item.appendChild(left);
+      item.appendChild(ping);
+
+      item.addEventListener('click', () => {
+        this.selectProxy(name);
+        document.getElementById('litePanel').classList.remove('open');
+        document.getElementById('liteOverlay').classList.remove('open');
+        this.litePanelOpen = false;
+      });
+
+      list.appendChild(item);
+    });
+  }
+
+  // --- 完整模式渲染 ---
+  renderFull() {
     this.renderStatus();
     this.renderGroups();
     if (!this.isTesting) this.renderProxies();
@@ -339,7 +703,7 @@ class PopupApp {
 
     if (this.state.connected) {
       indicator.className = 'dot online';
-      text.textContent = this.state.mihomoVersion ? `v${this.state.mihomoVersion}` : '在线';
+      text.textContent = this.state.mihomoVersion ? `${this.state.mihomoVersion}` : '在线';
     } else {
       indicator.className = 'dot offline';
       text.textContent = this.state.connectError || '未连接';
@@ -360,10 +724,9 @@ class PopupApp {
 
   renderGroups() {
     const select = document.getElementById('groupSelect');
+    if (!select) return;
     select.innerHTML = '';
     const proxies = this.state.proxies || {};
-
-    // 只显示用户在 Clash 里配置的代理组，过滤掉 GLOBAL 和内置组
     const builtIn = new Set(['GLOBAL', 'DIRECT', 'REJECT']);
     const groups = Object.keys(proxies).filter(name => {
       if (builtIn.has(name)) return false;
@@ -372,7 +735,6 @@ class PopupApp {
     });
 
     if (groups.length === 0) {
-      // 没有用户配置的组，提示去 Clash 配置
       const opt = document.createElement('option');
       opt.value = '';
       opt.textContent = '请在 Clash 中配置代理组';
@@ -380,7 +742,6 @@ class PopupApp {
       return;
     }
 
-    // 如果当前选中的组不在列表里，自动选第一个
     if (!groups.includes(this.state.currentGroup)) {
       this.state.currentGroup = groups[0];
     }
@@ -396,12 +757,13 @@ class PopupApp {
 
   renderProxies() {
     const container = document.getElementById('proxyList');
+    if (!container) return;
     container.innerHTML = '';
     const proxies = this.state.proxies || {};
     const group = proxies[this.state.currentGroup];
 
     if (!group || !group.all || group.all.length === 0) {
-      container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">暂无节点，请确认 Clash 已启动</div></div>';
+      container.innerHTML = '<div class="empty-state"><div class="empty-text">暂无节点</div></div>';
       return;
     }
 
@@ -412,7 +774,6 @@ class PopupApp {
       const proxy = proxies[name];
       if (!proxy) return;
 
-      // 如果这个"节点"其实是一个代理组，点击时跳转到那个组
       const isSubGroup = proxy.type === 'Selector' || proxy.type === 'URLTest' || proxy.type === 'Fallback';
       const onClick = isSubGroup
         ? () => {
@@ -435,12 +796,11 @@ class PopupApp {
     info.className = 'node-info';
     const name = document.createElement('div');
     name.className = 'node-name';
-    name.textContent = isGroup ? `📁 ${proxy.name}` : proxy.name;
+    name.textContent = proxy.name;
     name.title = proxy.name;
     const type = document.createElement('span');
 
     if (isGroup) {
-      // 子组显示当前选中的节点名
       type.className = 'node-type type-group';
       type.textContent = proxy.now || proxy.type;
     } else {
@@ -460,7 +820,6 @@ class PopupApp {
       delay.className += ' group-arrow';
     } else if (proxy.delay && proxy.delay > 0) {
       delay.textContent = `${proxy.delay}ms`;
-      // 绿 0-200ms，黄 200-1000ms，红 >1000ms
       delay.className += proxy.delay <= 200 ? ' good' : proxy.delay <= 1000 ? ' medium' : ' bad';
     } else {
       delay.textContent = 'timeout';
@@ -499,10 +858,7 @@ class PopupApp {
             for (const line of lines) {
               const t = line.trim();
               if (!t) continue;
-              try {
-                const data = JSON.parse(t);
-                this.onTrafficTick(data);
-              } catch {}
+              try { this.onTrafficTick(JSON.parse(t)); } catch {}
             }
           }
         } catch {}
@@ -515,8 +871,10 @@ class PopupApp {
     const up = data.up || 0;
     const down = data.down || 0;
 
-    document.getElementById('miniUpSpeed').textContent = formatSpeed(up);
-    document.getElementById('miniDownSpeed').textContent = formatSpeed(down);
+    const upEl = document.getElementById('miniUpSpeed');
+    const downEl = document.getElementById('miniDownSpeed');
+    if (upEl) upEl.textContent = formatSpeed(up);
+    if (downEl) downEl.textContent = formatSpeed(down);
 
     this.chartData.up.push(up);
     this.chartData.down.push(down);
@@ -546,9 +904,7 @@ class PopupApp {
     const stepX = w / (this.maxChartPoints - 1);
     const offset = this.maxChartPoints - pts;
 
-    // 下载（橙色）
     this.drawMiniLine(ctx, this.chartData.down, maxVal, h, stepX, offset, '#fb923c', 0.2);
-    // 上传（蓝色）
     this.drawMiniLine(ctx, this.chartData.up, maxVal, h, stepX, offset, '#38bdf8', 0.15);
   }
 
@@ -560,11 +916,9 @@ class PopupApp {
     for (let i = 0; i < data.length; i++) {
       const x = (offset + i) * stepX;
       const y = h - (data[i] / maxVal) * (h - 4) - 2;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.stroke();
-    // fill
     ctx.lineTo((offset + data.length - 1) * stepX, h);
     ctx.lineTo(offset * stepX, h);
     ctx.closePath();
