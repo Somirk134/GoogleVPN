@@ -1,105 +1,65 @@
-// 状态管理模块
+// 状态管理模块（精简版）
 
 export class StateManager {
   constructor() {
     this.state = this.getDefaultState();
   }
-  
-  // 获取默认状态
+
   getDefaultState() {
     return {
-      // 连接状态
       connected: false,
-      lastConnectTime: null,
       connectError: null,
-      
-      // 代理状态
       proxyEnabled: false,
       currentGroup: 'GLOBAL',
       currentProxy: null,
-      
-      // 节点列表
-      proxies: {},
-      groups: [],
-      
-      // 测速状态
+      proxies: {},       // mihomo 原始代理数据
+      traffic: { upload: 0, download: 0, connections: 0 },
       testing: false,
-      lastTestTime: null,
-      
-      // 订阅状态
-      subscriptions: [],
-      
-      // 流量统计
-      traffic: {
-        upload: 0,
-        download: 0,
-        uploadSpeed: 0,
-        downloadSpeed: 0
-      },
-      
-      // 更新时间
-      lastUpdate: null
+      mihomoVersion: null,
     };
   }
-  
-  // 获取状态
+
   getState() {
     return { ...this.state };
   }
-  
-  // 更新状态
+
   setState(updates) {
     this.state = { ...this.state, ...updates };
-    this.state.lastUpdate = Date.now();
-    
-    // 持久化
-    this.persist();
-    
-    // 广播状态变化
     this.broadcast();
   }
-  
-  // 持久化到 storage
+
+  // 持久化（只存配置相关，不存运行时状态）
   async persist() {
     try {
-      await chrome.storage.local.set({ 
-        state: this.state,
-        timestamp: Date.now()
+      await chrome.storage.local.set({
+        runtimeState: {
+          proxyEnabled: this.state.proxyEnabled,
+          currentGroup: this.state.currentGroup,
+        }
       });
-    } catch (error) {
-      console.error('Failed to persist state:', error);
+    } catch (e) {
+      console.error('Failed to persist state:', e);
     }
   }
-  
-  // 从 storage 恢复
+
   async restore() {
     try {
-      const result = await chrome.storage.local.get(['state', 'timestamp']);
-      
-      if (result.state) {
-        this.state = result.state;
-        console.log('State restored from', new Date(result.timestamp));
-      } else {
-        console.log('No saved state found, using defaults');
-        this.state = this.getDefaultState();
+      const { runtimeState } = await chrome.storage.local.get('runtimeState');
+      if (runtimeState) {
+        this.state.proxyEnabled = runtimeState.proxyEnabled || false;
+        this.state.currentGroup = runtimeState.currentGroup || 'GLOBAL';
       }
-    } catch (error) {
-      console.error('Failed to restore state:', error);
-      this.state = this.getDefaultState();
+    } catch (e) {
+      console.error('Failed to restore state:', e);
     }
   }
-  
-  // 广播状态变化
+
   broadcast() {
     try {
       chrome.runtime.sendMessage({
         type: 'STATE_UPDATE',
         state: this.state
-      }).catch(() => {
-        // Popup 可能未打开，忽略错误
-      });
-    } catch (error) {
-      // 忽略广播错误
-    }
+      }).catch(() => {});
+    } catch (e) { /* popup may not be open */ }
   }
 }

@@ -1,75 +1,116 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
-  <meta charset="UTF-8">
-  <title>Proxy Manager</title>
-  <link rel="stylesheet" href="styles/popup.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Proxy Manager</title>
+    <link rel="stylesheet" href="styles/popup.css">
 </head>
 <body>
-  <div id="app">
-    <!-- 左侧：状态和控制 -->
-    <aside class="sidebar">
-      <div class="logo">
-        <div class="logo-icon">🚀</div>
-        <div class="logo-text">Proxy Manager</div>
-      </div>
-      
-      <div class="status-card">
-        <div class="status-row">
-          <span class="label">Agent</span>
-          <span class="status-badge" id="agentStatus">离线</span>
-        </div>
-        <div class="status-row">
-          <span class="label">代理</span>
-          <span class="status-badge" id="proxyStatus">未启用</span>
-        </div>
-      </div>
-      
-      <div class="controls">
-        <button id="toggleProxy" class="btn-primary">
-          <span class="btn-icon">▶</span>
-          <span class="btn-text">启用代理</span>
-        </button>
-        <button id="testAll" class="btn-secondary">
-          <span class="btn-icon">⚡</span>
-          <span class="btn-text">测速</span>
-        </button>
-      </div>
-      
-      <div class="traffic-card">
-        <div class="traffic-item">
-          <span class="traffic-label">↑ 上传</span>
-          <span class="traffic-value" id="upload">0 B</span>
-        </div>
-        <div class="traffic-item">
-          <span class="traffic-label">↓ 下载</span>
-          <span class="traffic-value" id="download">0 B</span>
-        </div>
-      </div>
-      
-      <button id="settings" class="btn-settings">
-        <span>⚙️</span> 设置
-      </button>
-    </aside>
+    <div id="app">
+        <!-- 左侧控制区 -->
+        <aside class="sidebar">
+            <div class="brand">
+                <span class="logo-icon">🛡️</span>
+                <span class="brand-title">Proxy Manager</span>
+            </div>
+
+            <div class="glass-card status-card">
+                <div class="status-row">
+                    <span class="status-label">Mihomo</span>
+                    <div class="status-indicator">
+                        <span class="dot" id="statusIndicator"></span>
+                        <span class="status-text" id="statusText">未连接</span>
+                    </div>
+                </div>
+                <div class="status-row">
+                    <span class="status-label">系统代理</span>
+                    <span class="badge badge-disabled" id="proxyStatusBadge">未启用</span>
+                </div>
+            </div>
+
+            <div class="controls">
+                <button id="toggleProxy" class="btn btn-primary">
+                    <span class="btn-icon">▶</span> 启用代理
+                </button>
+                <button id="testAll" class="btn btn-secondary">
+                    刷新延迟
+                </button>
+            </div>
+
+            <!-- IP 信息 -->
+            <div class="glass-card ip-card">
+                <div class="ip-header">
+                    <span class="ip-label">IP 信息</span>
+                    <button class="ip-toggle-btn" id="ipToggle" title="显示/隐藏 IP">
+                        <svg class="eye-icon" id="eyeIcon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="ip-address" id="ipAddress">检测中...</div>
+                <div class="ip-meta">
+                    <span class="ip-location" id="ipLocation"></span>
+                    <button class="ip-refresh-btn" id="ipRefresh" title="重新检测">
+                        <svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <path d="M23 4v6h-6"/><path d="M1 20v-6h6"/>
+                            <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- 流量统计 -->
+            <div class="glass-card traffic-card">
+                <div class="traffic-grid">
+                    <div class="traffic-item">
+                        <span class="traffic-icon up-icon">↑</span>
+                        <div class="traffic-data">
+                            <div class="traffic-label">上传</div>
+                            <div class="traffic-value" id="upload">0 B</div>
+                        </div>
+                    </div>
+                    <div class="traffic-item">
+                        <span class="traffic-icon down-icon">↓</span>
+                        <div class="traffic-data">
+                            <div class="traffic-label">下载</div>
+                            <div class="traffic-value" id="download">0 B</div>
+                        </div>
+                    </div>
+                    <div class="traffic-item">
+                        <span class="traffic-icon conn-icon">⇌</span>
+                        <div class="traffic-data">
+                            <div class="traffic-label">连接数</div>
+                            <div class="traffic-value" id="connections">0</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <button id="settings" class="btn-settings">
+                <span>⚙️ 参数设置</span>
+            </button>
+        </aside>
+
+        <!-- 右侧内容区 -->
+        <main class="content">
+            <header class="content-header">
+                <div class="group-select-wrapper">
+                    <select id="groupSelect" class="group-select">
+                        <option value="GLOBAL">GLOBAL</option>
+                    </select>
+                </div>
+            </header>
+            <div class="proxy-list" id="proxyList">
+                <div class="empty-state">
+                    <div class="empty-icon">📭</div>
+                    <div class="empty-text">正在加载节点...</div>
+                </div>
+            </div>
+        </main>
+    </div>
     
-    <!-- 右侧：节点列表 -->
-    <main class="content">
-      <div class="content-header">
-        <select id="groupSelect" class="group-select">
-          <option value="GLOBAL">全局代理</option>
-        </select>
-      </div>
-      
-      <div class="proxy-list" id="proxyList">
-        <div class="empty-state">
-          <div class="empty-icon">📡</div>
-          <p>正在连接 Agent...</p>
-          <small>请确保 Agent 服务已启动</small>
-        </div>
-      </div>
-    </main>
-  </div>
-  
-  <script type="module" src="popup.js"></script>
+    <script type="module" src="popup.js"></script>
 </body>
 </html>

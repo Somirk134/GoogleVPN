@@ -1,136 +1,231 @@
-// Popup UI 主逻辑
+// Popup UI — 直连 mihomo 版
 
 import { formatBytes } from '../utils/format.js';
 
 class PopupApp {
   constructor() {
     this.state = null;
+    this.isTesting = false;
+    this.ipVisible = true;
+    this.ipData = null;
     this.init();
   }
-  
+
   async init() {
-    console.log('Popup: Initializing...');
-    console.log('Popup: Loading state...');
-    
-    // 加载状态
-    await this.loadState();
-    
-    console.log('Popup: State loaded:', this.state);
-    
-    // 绑定事件
+    let connectOk = false;
+    try {
+      const cr = await this.sendMessage('CONNECT');
+      connectOk = cr && cr.success;
+    } catch (e) {}
+
+    const resp = await this.sendMessage('GET_STATE');
+    this.state = (resp && resp.success) ? resp.data : this.defaultState();
+
+    // 未连接 → 直接打开设置页
+    if (!connectOk && !this.state.connected) {
+      chrome.runtime.openOptionsPage();
+      window.close();
+      return;
+    }
+
     this.bindEvents();
-    
-    console.log('Popup: Events bound');
-    
-    // 渲染 UI
     this.render();
-    
-    console.log('Popup: UI rendered');
-    
-    // 监听状态更新
-    chrome.runtime.onMessage.addListener((message) => {
-      console.log('Popup: Received message:', message);
-      if (message.type === 'STATE_UPDATE') {
-        this.state = message.state;
-        this.render();
+
+    // 自动检测 IP（不管代理开没开）
+    this.fetchIP();
+
+    chrome.runtime.onMessage.addListener((msg) => {
+      if (msg.type === 'STATE_UPDATE') {
+        this.state = msg.state;
+        if (!this.isTesting) this.render();
       }
     });
-    
-    console.log('Popup: Initialized');
-  }
-  
-  async loadState() {
-    try {
-      // 先尝试连接 Agent
-      try {
-        await chrome.runtime.sendMessage({
-          type: 'CONNECT_AGENT'
-        });
-      } catch (error) {
-        console.log('Agent connection attempt:', error.message);
-      }
-      
-      // 获取当前状态
-      const response = await chrome.runtime.sendMessage({
-        type: 'GET_STATE'
-      });
-      
-      if (response.success) {
-        this.state = response.data;
-        console.log('Popup: State loaded', this.state);
-      } else {
-        console.error('Failed to load state:', response.error);
-        this.showError('无法加载状态');
-      }
-    } catch (error) {
-      console.error('Failed to load state:', error);
-      this.showError('无法连接到后台服务');
+
+    // 拉延迟 + 流量
+    if (this.state.connected) {
+      this.runSpeedTest(true);
+      this.refreshTraffic();
     }
   }
-  
-  bindEvents() {
-    // 切换代理
-    document.getElementById('toggleProxy').addEventListener('click', () => {
-      this.toggleProxy();
-    });
-    
-    // 测速
-    document.getElementById('testAll').addEventListener('click', () => {
-      this.testAll();
-    });
-    
-    // 代理组切换
-    document.getElementById('groupSelect').addEventListener('change', (e) => {
-      this.selectGroup(e.target.value);
-    });
-    
-    // 设置
-    document.getElementById('settings').addEventListener('click', () => {
-      chrome.runtime.openOptionsPage();
-    });
+
+  defaultState() {
+    return {
+      connected: false, proxyEnabled: false,
+      currentGroup: '', proxies: {},
+      traffic: { upload: 0, download: 0, connections: 0 },
+      testing: false,
+    };
   }
-  
+
+  sendMessage(type, data = null) {
+    return chrome.runtime.sendMessage({ type, data });
+  }
+
+  bindEvents() {
+    document.getElementById('toggleProxy').addEventListener('click', () => this.toggleProxy());
+    document.getElementById('testAll').addEventListener('click', () => this.runSpeedTest(false));
+    document.getElementById('groupSelect').addEventListener('change', (e) => {
+      this.state.currentGroup = e.target.value;
+      this.render();
+    });
+    document.getElementById('settings').addEventListener('click', () => chrome.runtime.openOptionsPage());
+    document.getElementById('ipToggle').addEventListener('click', () => this.toggleIPVisibility());
+    document.getElementById('ipRefresh').addEventListener('click', () => this.fetchIP());
+  }
+
+  // === IP 检测 ===
+  toggleIPVisibility() {
+    this.ipVisible = !this.ipVisible;
+    const ipEl = document.getElementById('ipAddress');
+    const btn = document.getElementById('ipToggle');
+    const eyeIcon = document.getElementById('eyeIcon');
+
+    if (this.ipVisible) {
+      ipEl.classList.remove('masked');
+      btn.classList.remove('masked');
+      // 正常眼睛
+      eyeIcon.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+    } else {
+      ipEl.classList.add('masked');
+      btn.classList.add('masked');
+      // 划线眼睛
+      eyeIcon.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/><line x1="1" y1="1" x2="23" y2="23"/>';
+    }
+  }
+
+  async fetchIP() {
+    const ipEl = document.getElementById('ipAddress');
+    const locEl = document.getElementById('ipLocation');
+    const refreshBtn = document.getElementById('ipRefresh');
+
+    ipEl.textContent = '检测中...';
+    locEl.textContent = '';
+    refreshBtn.classList.add('spinning');
+
+    this.ipData = null;
+
+    try {
+      const resp = await fetch('https://ipapi.co/json/', { signal: AbortSignal.timeout(5000) });
+      const data = await resp.json();
+      this.ipData = {
+        ip: data.ip,
+        location: [data.city, data.region, data.country_name].filter(Boolean).join(', ')
+      };
+    } catch {
+      try {
+        const resp = await fetch('https://api.ipify.org?format=json', { signal: AbortSignal.timeout(5000) });
+        const data = await resp.json();
+        this.ipData = { ip: data.ip, location: '' };
+      } catch {
+        this.ipData = { ip: '检测失败', location: '' };
+      }
+    }
+
+    refreshBtn.classList.remove('spinning');
+    ipEl.textContent = this.ipData.ip;
+    locEl.textContent = this.ipData.location;
+
+    // 保持当前可见性状态
+    if (!this.ipVisible) {
+      ipEl.classList.add('masked');
+    }
+  }
+
+  // === 流量刷新 ===
+  async refreshTraffic() {
+    try {
+      const resp = await this.sendMessage('GET_TRAFFIC');
+      if (resp && resp.success) {
+        this.state.traffic = resp.data;
+        this.renderTraffic();
+      }
+    } catch {}
+  }
+
+  // === 测速 ===
+  async runSpeedTest(isAuto) {
+    const btn = document.getElementById('testAll');
+    btn.disabled = true;
+    btn.textContent = '刷新中...';
+    this.isTesting = true;
+
+    document.querySelectorAll('.latency').forEach(el => {
+      el.innerHTML = '<span class="spin-loader"></span>';
+      el.className = 'latency testing';
+    });
+
+    try {
+      // 只读取 Clash Verge 缓存的延迟数据，不触发新测速
+      const resp = await this.sendMessage('TEST_GROUP_DELAY');
+      if (!resp || !resp.success) {
+        if (!isAuto) this.showToast(resp ? resp.error : '刷新失败');
+      }
+    } catch (e) {
+      if (!isAuto) this.showToast('刷新失败: ' + e.message);
+    } finally {
+      this.isTesting = false;
+      btn.disabled = false;
+      btn.textContent = '刷新延迟';
+      const resp = await this.sendMessage('GET_STATE');
+      if (resp && resp.success) this.state = resp.data;
+      this.render();
+    }
+  }
+
+  // === 代理控制 ===
+  async toggleProxy() {
+    const enabled = !this.state.proxyEnabled;
+    try {
+      const resp = await this.sendMessage('TOGGLE_PROXY', { enabled });
+      if (!resp || !resp.success) this.showToast(resp ? resp.error : '操作失败');
+      else {
+        // 切换代理后自动重新检测 IP
+        this.fetchIP();
+      }
+    } catch (e) {
+      this.showToast('操作失败: ' + e.message);
+    }
+  }
+
+  async selectProxy(proxyName) {
+    try {
+      const resp = await this.sendMessage('SELECT_PROXY', {
+        group: this.state.currentGroup, proxy: proxyName
+      });
+      if (!resp || !resp.success) {
+        this.showToast(resp ? resp.error : '切换失败');
+      } else {
+        this.showToast(`已切换到 ${proxyName}`, 'success');
+        // 切换节点后自动重新检测 IP
+        setTimeout(() => this.fetchIP(), 500);
+      }
+    } catch { this.showToast('切换失败'); }
+  }
+
+  // === 渲染 ===
   render() {
     if (!this.state) return;
-    
-    // 渲染状态指示器
     this.renderStatus();
-    
-    // 渲染代理组
     this.renderGroups();
-    
-    // 渲染节点列表
-    this.renderProxies();
-    
-    // 渲染流量统计
+    if (!this.isTesting) this.renderProxies();
     this.renderTraffic();
   }
-  
+
   renderStatus() {
     const indicator = document.getElementById('statusIndicator');
     const text = document.getElementById('statusText');
     const badge = document.getElementById('proxyStatusBadge');
     const toggleBtn = document.getElementById('toggleProxy');
-    
-    // 安全检查
-    if (!indicator || !text || !badge || !toggleBtn) {
-      console.error('Popup: Status elements not found', {
-        indicator: !!indicator,
-        text: !!text,
-        badge: !!badge,
-        toggleBtn: !!toggleBtn
-      });
-      return;
-    }
-    
+    if (!indicator || !text || !badge || !toggleBtn) return;
+
     if (this.state.connected) {
       indicator.className = 'dot online';
-      text.textContent = '在线';
+      text.textContent = this.state.mihomoVersion ? `v${this.state.mihomoVersion}` : '在线';
     } else {
       indicator.className = 'dot offline';
-      text.textContent = this.state.connectError || '离线';
+      text.textContent = this.state.connectError || '未连接';
     }
-    
+
     if (this.state.proxyEnabled) {
       toggleBtn.innerHTML = '<span class="btn-icon">⏹</span> 停止代理';
       toggleBtn.className = 'btn btn-primary active';
@@ -143,200 +238,141 @@ class PopupApp {
       badge.textContent = '未启用';
     }
   }
-  
+
   renderGroups() {
     const select = document.getElementById('groupSelect');
     select.innerHTML = '';
-    
     const proxies = this.state.proxies || {};
+
+    // 只显示用户在 Clash 里配置的代理组，过滤掉 GLOBAL 和内置组
+    const builtIn = new Set(['GLOBAL', 'DIRECT', 'REJECT']);
     const groups = Object.keys(proxies).filter(name => {
-      const proxy = proxies[name];
-      return proxy.type === 'Selector' || proxy.type === 'URLTest' || proxy.type === 'Fallback';
+      if (builtIn.has(name)) return false;
+      const p = proxies[name];
+      return p && (p.type === 'Selector' || p.type === 'URLTest' || p.type === 'Fallback');
     });
-    
+
     if (groups.length === 0) {
-      groups.push('GLOBAL');
+      // 没有用户配置的组，提示去 Clash 配置
+      const opt = document.createElement('option');
+      opt.value = '';
+      opt.textContent = '请在 Clash 中配置代理组';
+      select.appendChild(opt);
+      return;
     }
-    
-    groups.forEach(group => {
-      const option = document.createElement('option');
-      option.value = group;
-      option.textContent = group;
-      option.selected = group === this.state.currentGroup;
-      select.appendChild(option);
+
+    // 如果当前选中的组不在列表里，自动选第一个
+    if (!groups.includes(this.state.currentGroup)) {
+      this.state.currentGroup = groups[0];
+    }
+
+    groups.forEach(g => {
+      const opt = document.createElement('option');
+      opt.value = g;
+      opt.textContent = g;
+      opt.selected = g === this.state.currentGroup;
+      select.appendChild(opt);
     });
   }
-  
+
   renderProxies() {
     const container = document.getElementById('proxyList');
     container.innerHTML = '';
-    
     const proxies = this.state.proxies || {};
     const group = proxies[this.state.currentGroup];
-    
+
     if (!group || !group.all || group.all.length === 0) {
-      container.innerHTML = '<div class="empty-state"><p>暂无节点</p></div>';
+      container.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">暂无节点，请确认 Clash 已启动</div></div>';
       return;
     }
-    
-    group.all.forEach(proxyName => {
-      const proxy = proxies[proxyName];
+
+    const skipNodes = new Set(['DIRECT', 'REJECT']);
+
+    group.all.forEach(name => {
+      if (skipNodes.has(name)) return;
+      const proxy = proxies[name];
       if (!proxy) return;
-      
-      const item = this.createProxyItem(
-        proxy,
-        proxy.name === group.now,
-        () => this.selectProxy(proxyName)
-      );
-      container.appendChild(item);
+
+      // 如果这个"节点"其实是一个代理组，点击时跳转到那个组
+      const isSubGroup = proxy.type === 'Selector' || proxy.type === 'URLTest' || proxy.type === 'Fallback';
+      const onClick = isSubGroup
+        ? () => {
+            this.state.currentGroup = name;
+            document.getElementById('groupSelect').value = name;
+            this.render();
+          }
+        : () => this.selectProxy(name);
+
+      container.appendChild(this.createProxyItem(proxy, name === group.now, onClick, isSubGroup));
     });
   }
-  
-  createProxyItem(proxy, selected, onClick) {
+
+  createProxyItem(proxy, selected, onClick, isGroup = false) {
     const item = document.createElement('div');
-    item.className = `proxy-item ${selected ? 'selected' : ''}`;
-    
+    item.className = `proxy-item${selected ? ' selected' : ''}${isGroup ? ' is-group' : ''}`;
+
     const info = document.createElement('div');
     info.className = 'node-info';
-    
     const name = document.createElement('div');
     name.className = 'node-name';
-    name.textContent = proxy.name;
-    
+    name.textContent = isGroup ? `📁 ${proxy.name}` : proxy.name;
+    name.title = proxy.name;
     const type = document.createElement('span');
-    type.className = 'node-type';
-    // 根据类型添加对应的 class
-    const typeClass = this.getTypeClass(proxy.type);
-    type.className += ` ${typeClass}`;
-    type.textContent = proxy.type || 'Unknown';
-    
+
+    if (isGroup) {
+      // 子组显示当前选中的节点名
+      type.className = 'node-type type-group';
+      type.textContent = proxy.now || proxy.type;
+    } else {
+      const tc = { Shadowsocks:'type-ss', ShadowsocksR:'type-ss', VMess:'type-vmess', VLESS:'type-vless', Trojan:'type-trojan' }[proxy.type] || 'type-ss';
+      type.className = `node-type ${tc}`;
+      type.textContent = proxy.type || '?';
+    }
     info.appendChild(name);
     info.appendChild(type);
-    
+
     const status = document.createElement('div');
     status.className = 'node-status';
-    
     const delay = document.createElement('span');
     delay.className = 'latency';
-    if (proxy.delay && proxy.delay > 0) {
+    if (isGroup) {
+      delay.textContent = '→';
+      delay.className += ' group-arrow';
+    } else if (proxy.delay && proxy.delay > 0) {
       delay.textContent = `${proxy.delay}ms`;
-      delay.className += this.getDelayClass(proxy.delay);
+      delay.className += proxy.delay < 100 ? ' good' : proxy.delay < 300 ? ' warning' : ' bad';
     } else {
       delay.textContent = '-';
     }
-    
     status.appendChild(delay);
-    
+
     item.appendChild(info);
     item.appendChild(status);
-    
     item.addEventListener('click', onClick);
-    
     return item;
   }
-  
-  getTypeClass(type) {
-    const typeMap = {
-      'Shadowsocks': 'type-ss',
-      'ShadowsocksR': 'type-ss',
-      'VMess': 'type-vmess',
-      'Trojan': 'type-trojan'
-    };
-    return typeMap[type] || 'type-ss';
-  }
-  
-  getDelayClass(delay) {
-    if (delay < 100) return ' good';
-    if (delay < 300) return ' warning';
-    return ' bad';
-  }
-  
+
   renderTraffic() {
-    const upload = document.getElementById('upload');
-    const download = document.getElementById('download');
-    
-    const traffic = this.state.traffic || { upload: 0, download: 0 };
-    
-    upload.textContent = formatBytes(traffic.upload);
-    download.textContent = formatBytes(traffic.download);
+    const t = this.state.traffic || {};
+    const up = document.getElementById('upload');
+    const down = document.getElementById('download');
+    const conn = document.getElementById('connections');
+    if (up) up.textContent = formatBytes(t.upload || 0);
+    if (down) down.textContent = formatBytes(t.download || 0);
+    if (conn) conn.textContent = t.connections || 0;
   }
-  
-  async toggleProxy() {
-    const enabled = !this.state.proxyEnabled;
-    
-    try {
-      const response = await chrome.runtime.sendMessage({
-        type: 'TOGGLE_PROXY',
-        data: { enabled }
-      });
-      
-      if (response.success) {
-        console.log('Proxy toggled:', enabled);
-      } else {
-        this.showError(response.error);
-      }
-    } catch (error) {
-      console.error('Failed to toggle proxy:', error);
-      this.showError('操作失败');
-    }
-  }
-  
-  async selectProxy(proxy) {
-    try {
-      const response = await chrome.runtime.sendMessage({
-        type: 'SELECT_PROXY',
-        data: {
-          group: this.state.currentGroup,
-          proxy: proxy
-        }
-      });
-      
-      if (response.success) {
-        console.log('Proxy selected:', proxy);
-      } else {
-        this.showError(response.error);
-      }
-    } catch (error) {
-      console.error('Failed to select proxy:', error);
-      this.showError('切换失败');
-    }
-  }
-  
-  selectGroup(group) {
-    this.state.currentGroup = group;
-    this.render();
-  }
-  
-  async testAll() {
-    const testBtn = document.getElementById('testAll');
-    testBtn.disabled = true;
-    testBtn.textContent = '测速中...';
-    
-    try {
-      const response = await chrome.runtime.sendMessage({
-        type: 'TEST_PROXIES',
-        data: { proxies: null }
-      });
-      
-      if (response.success) {
-        console.log('Speed test completed');
-      } else {
-        this.showError(response.error);
-      }
-    } catch (error) {
-      console.error('Speed test failed:', error);
-      this.showError('测速失败');
-    } finally {
-      testBtn.disabled = false;
-      testBtn.textContent = '测速';
-    }
-  }
-  
-  showError(message) {
-    // 简单的错误提示
-    alert(message);
+
+  showToast(msg, type = 'error') {
+    const existing = document.querySelector('.toast-msg');
+    if (existing) existing.remove();
+    const toast = document.createElement('div');
+    toast.className = 'toast-msg';
+    toast.textContent = msg;
+    const bg = type === 'success' ? '#4caf50' : '#f44336';
+    toast.style.cssText = `position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:${bg};color:white;padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.3);`;
+    document.body.appendChild(toast);
+    setTimeout(() => toast.remove(), 2000);
   }
 }
 
-// 初始化
 new PopupApp();

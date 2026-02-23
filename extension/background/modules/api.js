@@ -1,132 +1,96 @@
-// Agent API 客户端模块
+// Mihomo API 直连客户端
+// 直接与本地 Clash/Mihomo 的 RESTful API 通信
 
-export class AgentAPI {
-  constructor(baseURL) {
-    this.baseURL = baseURL;
-    this.timeout = 5000;
-    this.maxRetries = 3;
+export class MihomoAPI {
+  constructor(baseURL = 'http://127.0.0.1:9097', secret = '') {
+    this.baseURL = baseURL.replace(/\/+$/, '');
+    this.secret = secret;
   }
-  
-  // 通用请求方法
-  async request(method, path, data = null) {
-    const url = `${this.baseURL}${path}`;
-    const options = {
-      method,
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    };
-    
-    if (data) {
-      options.body = JSON.stringify(data);
+
+  updateConfig(baseURL, secret) {
+    this.baseURL = baseURL.replace(/\/+$/, '');
+    this.secret = secret || '';
+  }
+
+  async request(method, path, data = null, timeout = 10000) {
+    const headers = { 'Content-Type': 'application/json' };
+    if (this.secret) {
+      headers['Authorization'] = `Bearer ${this.secret}`;
     }
-    
-    // 重试逻辑
-    for (let i = 0; i < this.maxRetries; i++) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), this.timeout);
-        
-        const response = await fetch(url, {
-          ...options,
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        
-        const result = await response.json();
-        
-        if (result.code !== 0) {
-          throw new Error(result.message || 'Unknown error');
-        }
-        
-        return result.data;
-      } catch (error) {
-        console.error(`Request failed (attempt ${i + 1}/${this.maxRetries}):`, error);
-        
-        if (i === this.maxRetries - 1) {
-          throw error;
-        }
-        
-        // 指数退避
-        await this.delay(Math.pow(2, i) * 1000);
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+    try {
+      const opts = { method, headers, signal: controller.signal };
+      if (data) opts.body = JSON.stringify(data);
+
+      const resp = await fetch(`${this.baseURL}${path}`, opts);
+      clearTimeout(timeoutId);
+
+      if (!resp.ok) {
+        const text = await resp.text().catch(() => '');
+        throw new Error(`HTTP ${resp.status}: ${text}`);
       }
+
+      // 204 No Content
+      if (resp.status === 204) return null;
+
+      return await resp.json();
+    } catch (err) {
+      clearTimeout(timeoutId);
+      throw err;
     }
   }
-  
-  // 延迟函数
-  delay(ms) {
-    return new Promise(resolve => setTimeout(resolve, ms));
+
+  // === 状态 ===
+
+  // 获取 mihomo 版本信息（用于连接测试）
+  async getVersion() {
+    return this.request('GET', '/version');
   }
-  
-  // API 方法
-  
-  // 获取系统状态
-  async getStatus() {
-    return this.request('GET', '/api/v1/status');
+
+  // 获取运行配置
+  async getConfigs() {
+    return this.request('GET', '/configs');
   }
-  
-  // 获取所有代理
+
+  // === 代理 ===
+
+  // 获取所有代理和代理组
   async getProxies() {
-    return this.request('GET', '/api/v1/proxies');
+    return this.request('GET', '/proxies');
   }
-  
-  // 获取指定代理组
-  async getGroup(group) {
-    return this.request('GET', `/api/v1/proxies/${group}`);
+
+  // 获取指定代理组详情
+  async getGroup(name) {
+    return this.request('GET', `/proxies/${encodeURIComponent(name)}`);
   }
-  
-  // 切换代理节点
+
+  // 切换代理组的当前节点
   async selectProxy(group, proxy) {
-    return this.request('PUT', `/api/v1/proxies/${group}`, { name: proxy });
+    return this.request('PUT', `/proxies/${encodeURIComponent(group)}`, { name: proxy });
   }
-  
-  // 批量测速
-  async testProxies(proxies = null) {
-    return this.request('POST', '/api/v1/proxies/test', { proxies });
+
+  // 测试单个节点延迟
+  async testDelay(proxy, url = 'http://www.gstatic.com/generate_204', timeout = 5000) {
+    return this.request('GET',
+      `/proxies/${encodeURIComponent(proxy)}/delay?url=${encodeURIComponent(url)}&timeout=${timeout}`,
+      null, timeout + 3000);
   }
-  
-  // 获取节点延迟
-  async getDelay(proxy) {
-    return this.request('GET', `/api/v1/proxies/${proxy}/delay`);
+
+  // 批量测试代理组延迟（mihomo 内部并发）
+  async testGroupDelay(group, url = 'http://www.gstatic.com/generate_204', timeout = 5000) {
+    return this.request('GET',
+      `/group/${encodeURIComponent(group)}/delay?url=${encodeURIComponent(url)}&timeout=${timeout}`,
+      null, timeout + 5000);
   }
-  
-  // 获取订阅列表
-  async getSubscriptions() {
-    return this.request('GET', '/api/v1/subscriptions');
-  }
-  
-  // 添加订阅
-  async addSubscription(subscription) {
-    return this.request('POST', '/api/v1/subscriptions', subscription);
-  }
-  
-  // 更新订阅
-  async updateSubscription(id) {
-    return this.request('POST', `/api/v1/subscriptions/${id}/update`);
-  }
-  
-  // 删除订阅
-  async deleteSubscription(id) {
-    return this.request('DELETE', `/api/v1/subscriptions/${id}`);
-  }
-  
-  // 获取流量统计
+
+  // === 流量 ===
+
+  // 获取实时流量（单次快照，非 WebSocket）
   async getTraffic() {
-    return this.request('GET', '/api/v1/traffic');
-  }
-  
-  // 获取配置
-  async getConfig() {
-    return this.request('GET', '/api/v1/config');
-  }
-  
-  // 更新配置
-  async updateConfig(config) {
-    return this.request('PATCH', '/api/v1/config', config);
+    // mihomo 的 /traffic 是 SSE 流，我们用 /connections 获取总量
+    return this.request('GET', '/connections');
   }
 }

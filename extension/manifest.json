@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Proxy Manager",
-  "version": "1.0.0",
-  "description": "本地代理管理工具 - 控制浏览器代理，管理节点，一键测速",
+  "version": "2.0.0",
+  "description": "浏览器代理控制扩展 — 直连本地 Clash/Mihomo，切换节点、一键测速",
   "icons": {
     "16": "icons/icon16.png",
     "32": "icons/icon32.png",
@@ -11,11 +11,13 @@
   },
   "permissions": [
     "proxy",
-    "storage",
-    "alarms"
+    "storage"
   ],
   "host_permissions": [
-    "http://127.0.0.1:8765/*"
+    "http://127.0.0.1:*/*",
+    "http://localhost:*/*",
+    "https://ipapi.co/*",
+    "https://api.ipify.org/*"
   ],
   "background": {
     "service_worker": "background/background.js",

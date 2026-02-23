@@ -1,148 +1,136 @@
-// 消息处理模块
+// 消息处理模块 — 直连 mihomo 版
 
 export class MessageHandler {
-  constructor(state, api, proxy, scheduler) {
+  constructor(state, api, proxy) {
     this.state = state;
     this.api = api;
     this.proxy = proxy;
-    this.scheduler = scheduler;
-    
+
     this.handlers = {
-      'GET_STATE': this.getState.bind(this),
-      'SELECT_PROXY': this.selectProxy.bind(this),
-      'TOGGLE_PROXY': this.toggleProxy.bind(this),
-      'TEST_PROXIES': this.testProxies.bind(this),
-      'UPDATE_SUBSCRIPTION': this.updateSubscription.bind(this),
-      'CONNECT_AGENT': this.connectAgent.bind(this)
+      'GET_STATE': () => this.getState(),
+      'CONNECT': () => this.connect(),
+      'TOGGLE_PROXY': (d) => this.toggleProxy(d),
+      'SELECT_PROXY': (d) => this.selectProxy(d),
+      'TEST_GROUP_DELAY': (d) => this.testGroupDelay(d),
+      'SYNC_PROXIES': () => this.getProxies(),
+      'GET_PROXIES': () => this.getProxies(),
+      'GET_TRAFFIC': () => this.getTraffic(),
     };
   }
-  
-  // 处理消息
+
   async handle(message, sender, sendResponse) {
     const handler = this.handlers[message.type];
-    
-    if (handler) {
-      try {
-        const result = await handler(message.data);
-        sendResponse({ success: true, data: result });
-      } catch (error) {
-        console.error(`Message handler error (${message.type}):`, error);
-        sendResponse({ success: false, error: error.message });
-      }
-    } else {
+    if (!handler) {
       sendResponse({ success: false, error: 'Unknown message type' });
+      return;
+    }
+    try {
+      const result = await handler(message.data);
+      sendResponse({ success: true, data: result });
+    } catch (error) {
+      console.error(`Message handler error (${message.type}):`, error);
+      sendResponse({ success: false, error: error.message });
     }
   }
-  
-  // 获取状态
+
   async getState() {
     return this.state.getState();
   }
-  
-  // 选择代理
-  async selectProxy(data) {
-    const { group, proxy } = data;
-    
-    console.log(`Selecting proxy: ${group} -> ${proxy}`);
-    
-    // 调用 Agent API
-    await this.api.selectProxy(group, proxy);
-    
-    // 更新状态
-    this.state.setState({ 
-      currentGroup: group,
-      currentProxy: proxy 
-    });
-    
-    return { success: true };
+
+  // 连接 mihomo 并拉取代理列表
+  async connect() {
+    // 读取用户配置
+    const { config } = await chrome.storage.local.get('config');
+    if (config) {
+      this.api.updateConfig(
+        config.mihomoAPI || 'http://127.0.0.1:9097',
+        config.secret || ''
+      );
+    }
+
+    // 测试连接
+    const version = await this.api.getVersion();
+    this.state.setState({ mihomoVersion: version.version, connected: true, connectError: null });
+
+    // 拉取代理数据
+    await this.syncProxies();
+
+    return { version: version.version };
   }
-  
-  // 切换代理开关
+
+  // 同步代理列表 — 从 mihomo 拉取最新数据，延迟优先读 history 缓存
+  async syncProxies() {
+    const data = await this.api.getProxies();
+    const proxies = data.proxies || {};
+
+    // 从 history 提取缓存延迟（和 Clash Verge 显示一致）
+    for (const proxy of Object.values(proxies)) {
+      if (proxy.history && proxy.history.length > 0) {
+        const last = proxy.history[proxy.history.length - 1];
+        proxy.delay = last.delay > 0 ? last.delay : 0;
+      }
+    }
+
+    this.state.setState({ proxies, connected: true });
+  }
+
   async toggleProxy(data) {
     const { enabled } = data;
-    
-    console.log(`Toggling proxy: ${enabled}`);
-    
     if (enabled) {
-      await this.proxy.enable();
+      // 读取代理端口
+      const configs = await this.api.getConfigs();
+      const port = configs['mixed-port'] || configs['port'] || 7890;
+      await this.proxy.enable('127.0.0.1', port);
     } else {
       await this.proxy.disable();
     }
-    
     this.state.setState({ proxyEnabled: enabled });
-    
+    this.state.persist();
     return { enabled };
   }
-  
-  // 测速
-  async testProxies(data) {
-    const { proxies } = data;
-    
-    console.log('Starting speed test');
-    
+
+  async selectProxy(data) {
+    const { group, proxy } = data;
+    await this.api.selectProxy(group, proxy);
+    // 刷新代理数据
+    await this.syncProxies();
+    this.state.setState({ currentGroup: group, currentProxy: proxy });
+    this.state.persist();
+    return { group, proxy };
+  }
+
+  // 刷新延迟 — 只读取 Clash Verge 已缓存的 history 数据，不触发新测速
+  async testGroupDelay() {
     this.state.setState({ testing: true });
-    
     try {
-      const result = await this.api.testProxies(proxies);
-      
-      this.state.setState({
-        testing: false,
-        lastTestTime: Date.now()
-      });
-      
-      // 更新节点延迟
-      const currentProxies = this.state.getState().proxies;
-      if (result.results) {
-        result.results.forEach(r => {
-          if (currentProxies[r.proxy]) {
-            currentProxies[r.proxy].delay = r.delay;
-          }
-        });
-        this.state.setState({ proxies: currentProxies });
+      await this.syncProxies();
+      const proxies = this.state.getState().proxies || {};
+      // 收集所有有延迟的节点
+      const delays = {};
+      for (const [name, p] of Object.entries(proxies)) {
+        if (p.delay && p.delay > 0) delays[name] = p.delay;
       }
-      
-      return result;
+      this.state.setState({ testing: false });
+      return delays;
     } catch (error) {
       this.state.setState({ testing: false });
       throw error;
     }
   }
-  
-  // 更新订阅
-  async updateSubscription(data) {
-    const { id } = data;
-    
-    console.log(`Updating subscription: ${id}`);
-    
-    return await this.api.updateSubscription(id);
+
+  async getProxies() {
+    await this.syncProxies();
+    return this.state.getState().proxies;
   }
-  
-  // 连接 Agent
-  async connectAgent() {
-    console.log('Connecting to agent...');
-    
-    try {
-      const status = await this.api.getStatus();
-      
-      this.state.setState({
-        connected: true,
-        connectError: null,
-        lastConnectTime: Date.now()
-      });
-      
-      // 同步代理列表
-      const proxies = await this.api.getProxies();
-      this.state.setState({
-        proxies: proxies.proxies || {}
-      });
-      
-      return { success: true };
-    } catch (error) {
-      this.state.setState({
-        connected: false,
-        connectError: error.message
-      });
-      throw error;
-    }
+
+  async getTraffic() {
+    const data = await this.api.getTraffic();
+    const traffic = {
+      upload: data.uploadTotal || 0,
+      download: data.downloadTotal || 0,
+      connections: (data.connections || []).length,
+    };
+    this.state.setState({ traffic });
+    return traffic;
   }
 }

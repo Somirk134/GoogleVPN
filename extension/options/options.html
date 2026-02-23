@@ -1,70 +1,236 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
   <title>Proxy Manager - 设置</title>
   <link rel="stylesheet" href="styles/options.css">
 </head>
 <body>
-  <div class="container">
-    <header>
-      <h1>Proxy Manager 设置</h1>
-    </header>
-    
-    <main>
-      <!-- 连接设置 -->
-      <section class="section">
-        <h2>连接设置</h2>
-        <div class="form-group">
-          <label>Agent 地址:</label>
-          <input type="text" id="agentURL" value="http://127.0.0.1:8765" />
-          <small>本地 Agent 服务的 API 地址</small>
+  <div class="layout">
+    <!-- 左侧导航 -->
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-icon">PM</div>
+        <div class="brand-text">
+          <div class="brand-name">Proxy Manager</div>
+          <div class="brand-ver">v2.0.0</div>
         </div>
-        
-        <div class="form-group">
-          <label>
-            <input type="checkbox" id="autoConnect" checked />
-            浏览器启动时自动连接
-          </label>
-        </div>
-        
-        <button id="testConnection" class="btn-primary">测试连接</button>
-        <span id="connectionStatus"></span>
-      </section>
-      
-      <!-- 订阅管理 -->
-      <section class="section">
-        <h2>订阅管理</h2>
-        <div id="subscriptionList" class="subscription-list">
-          <p class="empty-hint">暂无订阅，请先启动 Agent 服务</p>
-        </div>
-        
-        <div class="form-group">
-          <label>添加订阅:</label>
-          <input type="text" id="subName" placeholder="订阅名称" />
-          <input type="url" id="subURL" placeholder="订阅地址 (https://...)" />
-          <button id="addSubscription" class="btn-primary">添加</button>
-        </div>
-      </section>
-      
-      <!-- 关于 -->
-      <section class="section">
-        <h2>关于</h2>
-        <p>Proxy Manager v1.0.0</p>
-        <p>本地代理管理工具</p>
-        <p>
-          <a href="#" id="viewDocs">查看文档</a> |
-          <a href="#" id="reportIssue">报告问题</a>
-        </p>
-      </section>
-      
-      <!-- 保存按钮 -->
-      <div class="actions">
-        <button id="saveSettings" class="btn-success">保存设置</button>
       </div>
+
+      <nav class="sidebar-nav">
+        <a class="nav-item active" data-tab="connection">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12.55a11 11 0 0114.08 0"/><path d="M1.42 9a16 16 0 0121.16 0"/><path d="M8.53 16.11a6 6 0 016.95 0"/><circle cx="12" cy="20" r="1"/></svg>
+          连接设置
+        </a>
+        <a class="nav-item" data-tab="guide">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 014 4v14a3 3 0 00-3-3H2z"/><path d="M22 3h-6a4 4 0 00-4 4v14a3 3 0 013-3h7z"/></svg>
+          新手引导
+        </a>
+        <a class="nav-item" data-tab="about">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+          关于
+        </a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="conn-badge" id="sidebarStatus">
+          <span class="conn-dot offline"></span>
+          <span class="conn-text">未连接</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 右侧内容 -->
+    <main class="main-content">
+      <!-- 连接设置 -->
+      <section class="tab-panel active" id="tab-connection">
+        <div class="panel-header">
+          <h2>连接设置</h2>
+          <p class="panel-desc">配置与本地 Clash / Mihomo 的连接</p>
+        </div>
+
+        <div class="card">
+          <div class="form-group">
+            <label for="mihomoAPI">API 地址</label>
+            <div class="input-wrap">
+              <input type="text" id="mihomoAPI" value="http://127.0.0.1:9097" spellcheck="false" />
+              <button class="input-action" id="autoDetect" title="自动扫描端口">扫描</button>
+            </div>
+            <small>即 Clash Verge 设置中的「外部控制」地址，不知道怎么找？去 <a href="#" id="goGuide">新手引导</a> 看看</small>
+          </div>
+
+          <div class="form-group">
+            <label for="secret">Secret 密钥</label>
+            <div class="input-wrap">
+              <input type="text" id="secret" placeholder="留空表示无密码" spellcheck="false" />
+            </div>
+            <small>对应 Clash Verge 设置中的「外部控制」密钥</small>
+          </div>
+
+          <div class="btn-row">
+            <button id="testConnection" class="btn btn-outline">测试连接</button>
+            <button id="saveSettings" class="btn btn-accent">保存设置</button>
+          </div>
+
+          <div id="connectionStatus" class="connection-status"></div>
+        </div>
+      </section>
+
+      <!-- 新手引导 -->
+      <section class="tab-panel" id="tab-guide">
+        <div class="panel-header">
+          <h2>新手引导</h2>
+          <p class="panel-desc">一步步教你完成配置</p>
+        </div>
+
+        <div class="wizard">
+          <!-- 步骤指示器 -->
+          <div class="wizard-steps">
+            <div class="wz-step active" data-step="1"><span class="wz-num">1</span><span class="wz-label">安装 Clash</span></div>
+            <div class="wz-line"></div>
+            <div class="wz-step" data-step="2"><span class="wz-num">2</span><span class="wz-label">找到外部控制</span></div>
+            <div class="wz-line"></div>
+            <div class="wz-step" data-step="3"><span class="wz-num">3</span><span class="wz-label">填写配置</span></div>
+            <div class="wz-line"></div>
+            <div class="wz-step" data-step="4"><span class="wz-num">4</span><span class="wz-label">完成</span></div>
+          </div>
+
+          <!-- 步骤内容 -->
+          <div class="wz-content">
+            <div class="wz-page active" id="wz-page-1">
+              <div class="wz-card">
+                <h3>第一步：安装 Clash Verge</h3>
+                <p>Proxy Manager 需要配合 Clash 客户端使用。推荐使用 <a href="https://github.com/clash-verge-rev/clash-verge-rev/releases" target="_blank">Clash Verge Rev</a>。</p>
+                <div class="wz-checklist">
+                  <div class="wz-check-item">
+                    <span class="check-icon">1</span>
+                    <span>下载并安装 Clash Verge Rev</span>
+                  </div>
+                  <div class="wz-check-item">
+                    <span class="check-icon">2</span>
+                    <span>打开 Clash Verge，导入你的订阅链接</span>
+                  </div>
+                  <div class="wz-check-item">
+                    <span class="check-icon">3</span>
+                    <span>确保 Clash Verge 正在运行（系统托盘有图标）</span>
+                  </div>
+                </div>
+                <div class="wz-tip">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                  如果你已经安装好了 Clash Verge 并导入了订阅，直接点下一步
+                </div>
+              </div>
+            </div>
+
+            <div class="wz-page" id="wz-page-2">
+              <div class="wz-card">
+                <h3>第二步：找到外部控制地址和密钥</h3>
+                <p>打开 Clash Verge，按以下步骤操作：</p>
+                <div class="wz-visual-steps">
+                  <div class="visual-step">
+                    <div class="vs-number">1</div>
+                    <div class="vs-content">
+                      <div class="vs-title">打开 Clash Verge 设置</div>
+                      <div class="vs-desc">点击左侧菜单的「设置」（齿轮图标）</div>
+                    </div>
+                  </div>
+                  <div class="visual-step">
+                    <div class="vs-number">2</div>
+                    <div class="vs-content">
+                      <div class="vs-title">找到「Clash 外部控制」</div>
+                      <div class="vs-desc">在设置页面中找到「外部控制」一栏，你会看到类似这样的内容：</div>
+                      <div class="vs-example">
+                        <div class="example-box">
+                          <div class="example-row">
+                            <span class="example-label">外部控制</span>
+                            <span class="example-value">127.0.0.1:9097</span>
+                          </div>
+                          <div class="example-row">
+                            <span class="example-label">密钥 (Secret)</span>
+                            <span class="example-value">set-your-secret</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="visual-step">
+                    <div class="vs-number">3</div>
+                    <div class="vs-content">
+                      <div class="vs-title">记下这两个值</div>
+                      <div class="vs-desc">把「外部控制」的地址和「密钥」记下来，下一步要用</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="wz-tip">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                  不同版本的 Clash Verge 界面可能略有不同，但「外部控制」一般都在设置页面
+                </div>
+              </div>
+            </div>
+
+            <div class="wz-page" id="wz-page-3">
+              <div class="wz-card">
+                <h3>第三步：填写配置</h3>
+                <p>把上一步获取的信息填到下面：</p>
+                <div class="wz-form">
+                  <div class="form-group">
+                    <label>API 地址</label>
+                    <input type="text" id="guideAPI" value="http://127.0.0.1:9097" spellcheck="false" placeholder="http://127.0.0.1:端口号" />
+                    <small>格式：http://127.0.0.1:端口号（端口号就是外部控制里冒号后面的数字）</small>
+                  </div>
+                  <div class="form-group">
+                    <label>Secret 密钥</label>
+                    <input type="text" id="guideSecret" spellcheck="false" placeholder="Clash Verge 中的密钥" />
+                    <small>如果 Clash Verge 没有设置密钥，留空即可</small>
+                  </div>
+                </div>
+                <div class="wz-inline-test">
+                  <button class="btn btn-outline" id="guideTest">测试连接</button>
+                  <span class="guide-test-status" id="guideTestStatus"></span>
+                </div>
+              </div>
+            </div>
+
+            <div class="wz-page" id="wz-page-4">
+              <div class="wz-card wz-done-card">
+                <div class="wz-done-icon">
+                  <svg viewBox="0 0 24 24" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                </div>
+                <h3>配置完成</h3>
+                <p>现在你可以关闭这个页面，点击浏览器右上角的 Proxy Manager 图标开始使用了。</p>
+                <div class="wz-tip">
+                  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                  如果之后需要修改配置，可以在「连接设置」中修改
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 导航按钮 -->
+          <div class="wz-nav">
+            <button class="btn btn-ghost" id="wzPrev" disabled>上一步</button>
+            <button class="btn btn-accent" id="wzNext">下一步</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- 关于 -->
+      <section class="tab-panel" id="tab-about">
+        <div class="panel-header">
+          <h2>关于</h2>
+          <p class="panel-desc">扩展信息</p>
+        </div>
+
+        <div class="card about-card">
+          <div class="about-row"><span class="about-label">名称</span><span>Proxy Manager</span></div>
+          <div class="about-row"><span class="about-label">版本</span><span>v2.0.0</span></div>
+          <div class="about-row"><span class="about-label">类型</span><span>Chrome 浏览器代理控制扩展</span></div>
+          <div class="about-row"><span class="about-label">后端</span><span>直连本地 Clash / Mihomo API</span></div>
+        </div>
+      </section>
     </main>
   </div>
-  
+
   <script type="module" src="options.js"></script>
 </body>
 </html>
